@@ -29,3 +29,14 @@ docker run --rm -i -v /your/output/round-1:/model:ro zhixun-harness:trial --pred
 标准输入为官方JSONL任务及inputs，标准输出为逐条outputs。发布目录自带baselines，仅需NumPy，也可执行 python -m baselines.predict --checkpoint checkpoint.npz。
 
 实验记录：https://swanlab.cn/@chunzhong06/zhixun
+
+## 精简上传镜像
+
+原运行源码对应 c9e12916295fa33fb703e026c471ad399a91cec2。精简步骤只去除第三方测试和字节码缓存，保留运行库、头文件与许可证。先按上文构建原镜像，再执行：
+
+```sh
+docker buildx build --pull=false --platform linux/amd64 --provenance=false --build-arg SOURCE_IMAGE=zhixun-harness:trial -f engineering/configs/container/Dockerfile.compact --output type=image,name=zhixun-harness:compact,compression=gzip,compression-level=9,force-compression=true .
+docker save --platform linux/amd64 -o harness-linux-amd64-compact.tar zhixun-harness:compact
+```
+
+实测归档由425.5 MiB降至249.2 MiB。全部保留运行文件哈希相同；三类训练接口、完整发动机两轮续训及独立预测与原镜像一致。接口检查使用明确的模型回复替身，不新增模型服务调用。平台试运行仍需独立验收。

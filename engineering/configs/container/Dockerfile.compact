@@ -1,0 +1,15 @@
+# 先按 Dockerfile.contest 构建原镜像；运行代码完整复用已验证的原镜像。
+ARG SOURCE_IMAGE=zhixun-harness:trial-20261115
+FROM ${SOURCE_IMAGE} AS pruned
+COPY engineering/cli/release/prune_contest_dependencies.py /tmp/prune_contest_dependencies.py
+RUN python -B /tmp/prune_contest_dependencies.py
+
+# 使用新层复制精简后的依赖，避免把已删除的测试文件留在历史层中。
+FROM python:3.13-slim
+WORKDIR /app
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 BASELINE_CPU_THREADS=1 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1
+ENV PYTHONPATH=/app/engineering/src:/app
+COPY --from=pruned /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
+COPY --from=pruned /app /app
+COPY --from=pruned /tmp/contest-dependency-prune.json /opt/contest-dependency-prune.json
+ENTRYPOINT ["python","-B","engineering/cli/release/contest_entry.py"]

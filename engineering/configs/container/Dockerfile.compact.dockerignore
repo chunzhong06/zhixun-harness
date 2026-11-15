@@ -1,0 +1,5 @@
+*
+!engineering/
+!engineering/cli/
+!engineering/cli/release/
+!engineering/cli/release/prune_contest_dependencies.py
