@@ -1,0 +1,15 @@
+# 构建上下文仅包含运行所需文件，原始资料和本机记录不进入镜像。
+*
+!engineering/
+!engineering/__init__.py
+!engineering/configs/
+!engineering/configs/**
+!engineering/src/
+!engineering/src/**
+!engineering/cli/
+!engineering/cli/**
+!engineering/tests/
+!engineering/tests/fixtures/
+!engineering/tests/fixtures/**
+**/__pycache__/
+**/*.pyc

@@ -1,0 +1,15 @@
+{
+  "name": "official-gas-portable-same-tools-v1",
+  "seed": 17,
+  "rounds": 10,
+  "holdout_fraction": 0.3333333333333333,
+  "max_candidate_epochs": 3,
+  "baseline_tolerance": 1e-8,
+  "worker_wall_seconds": 30,
+  "worker_cpu_seconds": 20,
+  "worker_memory_bytes": 536870912,
+  "arms": ["static", "sequence-first-window", "sequence-protected"],
+  "action_scope": "protected_pair_only",
+  "cost": "两种维护策略每轮最多尝试一个修正，均使用同一原训练集及相同作业限额；本比较未开放梯度续训。完全相同的已建候选可重新评价。",
+  "scope": "沿用已冻结的公开气体十轮划分。保留静态原版，比较按首轮错判固定顺序和逐轮选择修正方向。每个候选均须通过共同的探索提名和确认。"
+}

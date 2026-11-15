@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "default": "phase",
+  "tools": ["phase", "median", "tree", "mean-of-three"],
+  "site_schedule": "Separate synchronized-start replays. Decision clock is elapsed minutes. No site or device identifier selects the tool. Strictly earlier failures only.",
+  "feedback": "Five evenly spaced available records of each completed reference device; rounded linspace in chronological order; each unit has equal weight. Service devices never become feedback.",
+  "criterion": "Choose the tool with lowest mean per-device mean squared error over all released reference devices. Ties in listed order. Also issue an arm freezing the first such decision, every fixed tool and the original package.",
+  "femto": "Learning_set six reference devices, Full_Test_Set eleven service devices. New original snapshots 48,108,... before failure. If retrieval fails, predetermined local offset 40 reported separately as a replay.",
+  "xjtu": "Official validation fourth devices are feedback only; three fifth devices are service. New original snapshots 6,16,... before failure. If mirror unavailable use old fifth-devices manifest as a labeled replay. Additionally evaluate previously unscored local Bearing1_5 offset 6 independently when remote fails.",
+  "score": "Primary pooled snapshot RMSE in minutes, also each device and worst-device RMSE. Resource limit zero retraining, zero service labels. Record lower budget used by fixed arms.",
+  "accept": "Adopt automatic choice only if primary RMSE beats every fixed tool and choose-once by at least one percent on both sites, with worst-device RMSE no more than one percent higher than the best-primary fixed tool on either site. Otherwise keep selector experimental. Do not pick a new universal default using these test scores."
+}

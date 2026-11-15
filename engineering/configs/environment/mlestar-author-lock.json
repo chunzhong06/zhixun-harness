@@ -1,0 +1,25 @@
+{
+  "python": "3.13.11 | packaged by Anaconda, Inc. | (main, Dec 10 2025, 21:21:58) [MSC v.1929 64 bit (AMD64)]",
+  "executable": "D:\\常用\\BJUT\\人工智能+\\engineering\\.environments\\mle-star\\Scripts\\python.exe",
+  "environment": "工程目录内独立venv，继承原科学计算环境，只在本venv安装作者依赖",
+  "packages": {
+    "google-adk": "1.22.1",
+    "google-genai": "1.57.0",
+    "google-cloud-aiplatform": "1.133.0",
+    "pydantic": "2.12.5",
+    "numpy": "2.5.4",
+    "scipy": "1.18.1",
+    "pandas": "3.1.1",
+    "scikit-learn": "1.7.2",
+    "cloudpickle": "3.1.2",
+    "torch": "2.7.1+cpu"
+  },
+  "author_commit": "8a745552288f541f863bf4e50ca198522383d51d",
+  "author_locked_core": [
+    "google-adk",
+    "google-genai",
+    "google-cloud-aiplatform",
+    "pydantic"
+  ],
+  "torch": "2.7.1+cpu满足作者声明下限，实际版本单列；非作者GPU环境"
+}

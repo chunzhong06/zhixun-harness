@@ -1,0 +1,16 @@
+{
+  "name": "official-gas-pair-4",
+  "seed": 17, "rounds": 10, "holdout_fraction": 0.3333333333333333,
+  "max_candidate_epochs": 3, "baseline_tolerance": 0.00000001,
+  "worker_wall_seconds": 30, "worker_cpu_seconds": 20, "worker_memory_bytes": 536870912,
+  "controls_directory": "pilot-1",
+  "controls_sha256": {
+    "fixed": "9de1766d75062f8cfa495730196b110b3a7a1278bef075affe139d0b43ede9ad",
+    "static": "eaebf9f9d2ec220e0c0a6eefd933a9ec16c16a805d3d6eeaeeb12c81b651b71d"
+  },
+  "arms": ["pair-prior", "pair-raw-knn", "pair-shape-knn", "pair-shape-blend"],
+  "motivation": "全局修正目录均未胜出。相对响应近邻找回35/37条探索乙醛，但对其他类损害大。此新协议在读取各组采用和留出结果之前另行冻结。",
+  "rule": "每轮先看当前探索数据中实际出现最多、且至少重复两次的误判方向，同频时按真类、原预测编号排序。只有原版预测为被混淆的类别、辅助预测支持目标类时才改判。同一运行最多采用一次局部修正，以观察后续批次的持续效果；未采用时继续提出候选。当前探索和共同采用都严格胜出才生效。完整参考表只用445条训练行，原检查点权重及Adam状态完整保留，均不追加梯度更新。",
+  "primary": "pair-shape-blend，原模型概率与相对响应5近邻票数各半。对照为仅按原训练类别频率修正、原始尺度5近邻、相对响应5近邻。记录在用版最终Macro-F1、六类召回和误报、首次采用后的后续探索表现。额外在同414行比较全局形状融合，检验定向保护作用。",
+  "scope": "完整采用流程的四个对照预先固定，均重用本项目早先观察的同一个官方验证源批；+0.03 Macro-F1是开发效果目标。样本不具备已核实的独立测量单位，不能据逐行或十个逻辑轮次推断跨批统计显著性。"
+}

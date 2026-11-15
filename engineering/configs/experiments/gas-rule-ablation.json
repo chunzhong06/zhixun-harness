@@ -1,0 +1,12 @@
+{
+  "frozen_inputs": "engineering/configs/experiments/gas-frozen-future.json",
+  "development_reference": "results/experiments/official-gas/pilot-5/sequence-protected/result.json",
+  "prior_future_predictions": "results/experiments/official-gas/pilot-7/predictions.jsonl",
+  "question": "关闭乙醛规则后，乙烯规则单独运行能否保留相同预测并降低推理耗时？乙醛错在入口、五个参照样本还是与原模型合并分数时？",
+  "development": "事先沿用开发回放的414行作主比较；补报同源其余830行。两组均是已见的第2批。",
+  "arms": "同一末版固定权重、特征尺度和训练参照。只切换规则，比较六类Macro-F1、逐条纠正与误改。",
+  "timing_repeats": 12,
+  "timing": "同一CPU单线程，预热后轮换版本顺序，在414条上按服务入口逐行预测。报告各轮和中位单条耗时。若可以共享近邻计算，须与原顺序的六类输出逐行相同，并在同一进程与逐项计算对照。",
+  "diagnosis_batches": [9, 10],
+  "diagnosis": "已见批次只作诊断。核对先前逐行预测，追踪全体真乙醛、原判乙醇和最终仍判乙醇的样本。保留近邻的六类票数、原模型和融合概率、最近乙醛参照的名次。与第2批同口径对照。"
+}

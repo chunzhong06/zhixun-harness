@@ -1,0 +1,12 @@
+{
+  "frozen": "engineering/configs/experiments/gas-frozen-future.json",
+  "development_rows": "results/experiments/official-gas/pilot-8/development.json",
+  "diagnostic_reference": "results/experiments/official-gas/pilot-7/predictions.jsonl",
+  "timing_passes": 12,
+  "comparison": "沿用第2批414行主比较和其余830行复核。原模型、445条训练参照、每项原有的跨传感器归一化、五个不同的参照、融合各半、两个允许改判方向都固定。",
+  "whole": "使用每个传感器8项特征的平方欧氏距离。逐条对照已发布的保护式模型。",
+  "dynamic": "仅用同一组上升和回落特征，按6项合并距离查找。用于区分去掉稳态和分开匹配的影响。",
+  "separate": "上升3项与回落3项各按距离给全部参照排序。两份名次等权相加，按和从小到大取五个不同参照，同分按冻结参照库原序。方法由本项目预先选定。",
+  "decision": "只以开发数据决定。候选在414行的乙醛认对数和六类Macro-F1同时提高，不新增原本认对的乙醇或甲苯错误，830行两项效果不反向，才保留作效果候选。当多个方案满足时优先主比较Macro-F1，若同分取耗时低者。统计查到至少一条乙醛、五票中乙醛票数、改对与改错、原判乙醇的入口覆盖，以及模型逐条预测耗时。",
+  "diagnosis": "开发判断写盘后才打开原始第9、10批。对冻结方案只作回顾性诊断，与历史预测逐行核对。诊断分数不参与采用、阈值或权重选择。"
+}

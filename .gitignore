@@ -1,0 +1,9 @@
+scratch/
+results/
+data/
+__pycache__/
+*.pyc
+.env
+*.npz
+*.pkl
+*.tar

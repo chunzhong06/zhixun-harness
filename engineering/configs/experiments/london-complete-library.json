@@ -1,0 +1,754 @@
+{
+  "name": "已见2025资料冻结的完整维护起点与同工具方案库",
+  "initial_plan": {
+    "hypothesis": "当前已冻结最强组合，原办法原样补训",
+    "filters": [],
+    "components": [
+      {
+        "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\nfrom sklearn.linear_model import Ridge\n\nclass ReferenceRegressor(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        # 时间列表示实际经过的小时；按最后一条合法训练参考截取历史。\n        selected = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[selected], y[selected]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.training_hours_ = X[:, -1].copy()\n        self.columns_ = [4, 6, 7, 8, 0, 1, 2, 3]\n        residual = y - X[:, 4]\n        self.center_ = np.mean(X[:, self.columns_], axis=0)\n        self.scale_ = np.std(X[:, self.columns_], axis=0)\n        self.scale_ = np.where(self.scale_ < 1e-8, 1., self.scale_)\n        self.bias_ = float(np.mean(residual))\n        self.model_ = Ridge(**{'alpha': 8.0, 'copy_X': True, 'fit_intercept': True, 'max_iter': None, 'positive': False, 'random_state': None, 'solver': 'auto', 'tol': 0.0001})\n        self.model_.fit((X[:, self.columns_] - self.center_) / self.scale_, residual)\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        residual = self.model_.predict((X[:, self.columns_] - self.center_) / self.scale_)\n        return np.maximum(0., X[:, 4] + 1.0 * residual)\n\ndef build_model():\n    return ReferenceRegressor()\n",
+        "weight": 0.75,
+        "feedback": {
+          "gain": 0.5,
+          "hours": 6.0
+        }
+      },
+      {
+        "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\n\nclass RecentBL0Bias(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        keep = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[keep], y[keep]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.bias_ = float(np.mean(y - X[:, 0]))\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        return np.maximum(0.0, X[:, 0] + 0.5 * self.bias_)\n\ndef build_model():\n    return RecentBL0Bias()\n",
+        "weight": 0.25,
+        "feedback": {
+          "gain": 0.75,
+          "hours": 18.0
+        }
+      }
+    ]
+  },
+  "default_plan_id": "60487411d9aa39024f2a99bb6461873180c3c4317017c01848b54c23cdf7f860",
+  "plans": {
+    "10e40167d60293bbd2494ebc63f3a1bceee715ca1c600e3806b879cc7a5470f6": {
+      "hypothesis": "当前已冻结最强组合，原办法原样补训",
+      "filters": [],
+      "components": [
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\nfrom sklearn.linear_model import Ridge\n\nclass ReferenceRegressor(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        # 时间列表示实际经过的小时；按最后一条合法训练参考截取历史。\n        selected = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[selected], y[selected]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.training_hours_ = X[:, -1].copy()\n        self.columns_ = [4, 6, 7, 8, 0, 1, 2, 3]\n        residual = y - X[:, 4]\n        self.center_ = np.mean(X[:, self.columns_], axis=0)\n        self.scale_ = np.std(X[:, self.columns_], axis=0)\n        self.scale_ = np.where(self.scale_ < 1e-8, 1., self.scale_)\n        self.bias_ = float(np.mean(residual))\n        self.model_ = Ridge(**{'alpha': 8.0, 'copy_X': True, 'fit_intercept': True, 'max_iter': None, 'positive': False, 'random_state': None, 'solver': 'auto', 'tol': 0.0001})\n        self.model_.fit((X[:, self.columns_] - self.center_) / self.scale_, residual)\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        residual = self.model_.predict((X[:, self.columns_] - self.center_) / self.scale_)\n        return np.maximum(0., X[:, 4] + 1.0 * residual)\n\ndef build_model():\n    return ReferenceRegressor()\n",
+          "weight": 0.75,
+          "feedback": {
+            "gain": 0.5,
+            "hours": 6.0
+          }
+        },
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\n\nclass RecentBL0Bias(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        keep = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[keep], y[keep]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.bias_ = float(np.mean(y - X[:, 0]))\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        return np.maximum(0.0, X[:, 0] + 0.5 * self.bias_)\n\ndef build_model():\n    return RecentBL0Bias()\n",
+          "weight": 0.25,
+          "feedback": {
+            "gain": 0.75,
+            "hours": 18.0
+          }
+        }
+      ]
+    },
+    "250b36c069374c0a8a0217cf36b9d652eca830fae57fe5ff854094020c0e55df": {
+      "components": [
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\nfrom sklearn.linear_model import HuberRegressor\n\nclass RobustConsensusRegressor(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        keep = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[keep], y[keep]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.columns_ = [4, 5, 6, 7, 8, 0, 1, 2, 3]\n        self.center_ = np.median(X[:, self.columns_], axis=0)\n        q1 = np.percentile(X[:, self.columns_], 25, axis=0)\n        q3 = np.percentile(X[:, self.columns_], 75, axis=0)\n        self.scale_ = q3 - q1\n        self.scale_ = np.where(self.scale_ < 1e-8, 1.0, self.scale_)\n        z = (X[:, self.columns_] - self.center_) / self.scale_\n        self.model_ = HuberRegressor(epsilon=1.5, alpha=0.5, max_iter=256)\n        self.model_.fit(z, y - X[:, 4])\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        z = (X[:, self.columns_] - self.center_) / self.scale_\n        residual = self.model_.predict(z)\n        return np.maximum(0.0, X[:, 4] + residual)\n\ndef build_model():\n    return RobustConsensusRegressor()\n",
+          "weight": 1.0,
+          "feedback": {
+            "gain": 0.5,
+            "hours": 6.0
+          }
+        }
+      ],
+      "filters": [],
+      "hypothesis": "最近服务误差显示极端传感器值会显著拉偏以均值标准化的线性残差模型：BL0=29.3时答案7.3、BQ9=45.5时答案6.9，另有高值低估。用最近21天训练，并以传感器中位数为锚点、IQR尺度和Huber损失拟合绝对答案相对中位数的残差，检验降低异常输入杠杆影响后能否改善服务预测。"
+    },
+    "0041d9e1cb4597301d8da213d38b8f79b87ed82c2702a7915f674806b344f75a": {
+      "components": [
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\nfrom sklearn.linear_model import Ridge\n\nclass ReferenceRegressor(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        # 时间列表示实际经过的小时；按最后一条合法训练参考截取历史。\n        selected = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[selected], y[selected]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.training_hours_ = X[:, -1].copy()\n        self.columns_ = [4, 6, 7, 8, 0, 1, 2, 3]\n        residual = y - X[:, 4]\n        self.center_ = np.mean(X[:, self.columns_], axis=0)\n        self.scale_ = np.std(X[:, self.columns_], axis=0)\n        self.scale_ = np.where(self.scale_ < 1e-8, 1., self.scale_)\n        self.bias_ = float(np.mean(residual))\n        self.model_ = Ridge(**{'alpha': 8.0, 'copy_X': True, 'fit_intercept': True, 'max_iter': None, 'positive': False, 'random_state': None, 'solver': 'auto', 'tol': 0.0001})\n        self.model_.fit((X[:, self.columns_] - self.center_) / self.scale_, residual)\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        residual = self.model_.predict((X[:, self.columns_] - self.center_) / self.scale_)\n        return np.maximum(0., X[:, 4] + 1.0 * residual)\n\ndef build_model():\n    return ReferenceRegressor()\n",
+          "weight": 0.75,
+          "feedback": {
+            "gain": 0.5,
+            "hours": 6.0
+          }
+        },
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\nfrom sklearn.linear_model import HuberRegressor\n\nclass RobustConsensusRegressor(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        keep = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[keep], y[keep]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.columns_ = [4, 5, 6, 7, 8, 0, 1, 2, 3]\n        self.center_ = np.median(X[:, self.columns_], axis=0)\n        q1 = np.percentile(X[:, self.columns_], 25, axis=0)\n        q3 = np.percentile(X[:, self.columns_], 75, axis=0)\n        self.scale_ = q3 - q1\n        self.scale_ = np.where(self.scale_ < 1e-8, 1.0, self.scale_)\n        z = (X[:, self.columns_] - self.center_) / self.scale_\n        self.model_ = HuberRegressor(epsilon=1.5, alpha=0.5, max_iter=256)\n        self.model_.fit(z, y - X[:, 4])\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        z = (X[:, self.columns_] - self.center_) / self.scale_\n        residual = self.model_.predict(z)\n        return np.maximum(0.0, X[:, 4] + residual)\n\ndef build_model():\n    return RobustConsensusRegressor()\n",
+          "weight": 0.25,
+          "feedback": {
+            "gain": 0.5,
+            "hours": 6.0
+          }
+        }
+      ],
+      "filters": [],
+      "hypothesis": "上一轮Huber稳健残差方案在一段评估中改善（RMSE 0.774），另一段明显退步（5.707）；当前模型另一段为0.878。分段方向相反说明单独替换过于激进。本轮以原参考组合的Ridge主体为主，仅加入25%稳健残差组件，检验能否保留常态段表现并缓和高杠杆异常输入造成的误差。"
+    },
+    "2826400e8593172a5bc70b99673a83d4e1bbe8ed90f08c8a32d6ee37a5a1ee9e": {
+      "components": [
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\nfrom sklearn.linear_model import Ridge\n\nclass ReferenceRegressor(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        # 时间列表示实际经过的小时；按最后一条合法训练参考截取历史。\n        selected = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[selected], y[selected]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.training_hours_ = X[:, -1].copy()\n        self.columns_ = [4, 6, 7, 8, 0, 1, 2, 3]\n        residual = y - X[:, 4]\n        self.center_ = np.mean(X[:, self.columns_], axis=0)\n        self.scale_ = np.std(X[:, self.columns_], axis=0)\n        self.scale_ = np.where(self.scale_ < 1e-8, 1., self.scale_)\n        self.bias_ = float(np.mean(residual))\n        self.model_ = Ridge(**{'alpha': 8.0, 'copy_X': True, 'fit_intercept': True, 'max_iter': None, 'positive': False, 'random_state': None, 'solver': 'auto', 'tol': 0.0001})\n        self.model_.fit((X[:, self.columns_] - self.center_) / self.scale_, residual)\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        residual = self.model_.predict((X[:, self.columns_] - self.center_) / self.scale_)\n        return np.maximum(0., X[:, 4] + 1.0 * residual)\n\ndef build_model():\n    return ReferenceRegressor()\n",
+          "weight": 0.75,
+          "feedback": {
+            "gain": 0.5,
+            "hours": 6.0
+          }
+        },
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\n\nclass RecentBL0Bias(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        keep = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[keep], y[keep]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.bias_ = float(np.mean(y - X[:, 0]))\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        return np.maximum(0.0, X[:, 0] + 0.5 * self.bias_)\n\ndef build_model():\n    return RecentBL0Bias()\n",
+          "weight": 0.25,
+          "feedback": {
+            "gain": 0.75,
+            "hours": 18.0
+          }
+        }
+      ],
+      "filters": [
+        {
+          "feature": "BL0",
+          "operator": "<=",
+          "threshold": 20.0
+        },
+        {
+          "feature": "BQ9",
+          "operator": "<=",
+          "threshold": 30.0
+        }
+      ],
+      "hypothesis": "现场可见序列在小时4590出现BL0=29.3、小时4608出现BQ9=45.5的孤立异常读数，邻近小时预测误差绝对值分别达到10.127、7.606和5.420；这些输入异常可能作为训练样本拉偏保留完整原学习器。仅从训练子集中移除超出历史常见量级的BL0或BQ9样本，检验成熟重训筛选机制能否降低异常污染，同时保留其他结构与学习反馈。"
+    },
+    "d1f37672efa714915fedab95389fd5017856cb0028908b6613fe1dd8b3674d73": {
+      "components": [
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\nfrom sklearn.linear_model import Ridge\n\nclass ReferenceRegressor(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        # 时间列表示实际经过的小时；按最后一条合法训练参考截取历史。\n        selected = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[selected], y[selected]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.training_hours_ = X[:, -1].copy()\n        self.columns_ = [4, 6, 7, 8, 0, 1, 2, 3]\n        residual = y - X[:, 4]\n        self.center_ = np.mean(X[:, self.columns_], axis=0)\n        self.scale_ = np.std(X[:, self.columns_], axis=0)\n        self.scale_ = np.where(self.scale_ < 1e-8, 1., self.scale_)\n        self.bias_ = float(np.mean(residual))\n        self.model_ = Ridge(**{'alpha': 8.0, 'copy_X': True, 'fit_intercept': True, 'max_iter': None, 'positive': False, 'random_state': None, 'solver': 'auto', 'tol': 0.0001})\n        self.model_.fit((X[:, self.columns_] - self.center_) / self.scale_, residual)\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        residual = self.model_.predict((X[:, self.columns_] - self.center_) / self.scale_)\n        return np.maximum(0., X[:, 4] + 1.0 * residual)\n\ndef build_model():\n    return ReferenceRegressor()\n",
+          "weight": 0.75,
+          "feedback": {
+            "gain": 0.25,
+            "hours": 2.0
+          }
+        },
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\n\nclass RecentBL0Bias(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        keep = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[keep], y[keep]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.bias_ = float(np.mean(y - X[:, 0]))\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        return np.maximum(0.0, X[:, 0] + 0.5 * self.bias_)\n\ndef build_model():\n    return RecentBL0Bias()\n",
+          "weight": 0.25,
+          "feedback": {
+            "gain": 0.75,
+            "hours": 18.0
+          }
+        }
+      ],
+      "filters": [
+        {
+          "feature": "BL0",
+          "operator": "<=",
+          "threshold": 20.0
+        },
+        {
+          "feature": "BQ9",
+          "operator": "<=",
+          "threshold": 30.0
+        }
+      ],
+      "hypothesis": "前一轮的异常输入筛选仍是唯一筛选假设；近期服务误差在正常量级输入下仍有快速正负切换（例如小时4710为-1.398、4716为+1.401、4722为-2.634、4734为+1.048、4764为+2.440），说明短时反馈可能对瞬时波动反应过强。进一步缩短高误差第一组件的反馈跨度并减小增益，检验是否能降低由单点噪声触发的过度修正；第二组件维持原反馈，以保留当前较低误差分量的稳定性。"
+    },
+    "90d37348c228b7613c3e0ba713e9f840a37bf663ac12b6b725ad1a288af548b7": {
+      "components": [
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\nfrom sklearn.linear_model import Ridge\n\nclass ReferenceRegressor(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        selected = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[selected], y[selected]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.training_hours_ = X[:, -1].copy()\n        self.columns_ = [4, 6, 7, 8, 0, 1, 2, 3]\n        residual = y - X[:, 4]\n        self.center_ = np.mean(X[:, self.columns_], axis=0)\n        self.scale_ = np.std(X[:, self.columns_], axis=0)\n        self.scale_ = np.where(self.scale_ < 1e-8, 1., self.scale_)\n        self.bias_ = float(np.mean(residual))\n        self.model_ = Ridge(**{'alpha': 8.0, 'copy_X': True, 'fit_intercept': True, 'max_iter': None, 'positive': False, 'random_state': None, 'solver': 'auto', 'tol': 0.0001})\n        self.model_.fit((X[:, self.columns_] - self.center_) / self.scale_, residual)\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        residual = self.model_.predict((X[:, self.columns_] - self.center_) / self.scale_)\n        return np.maximum(0., X[:, 4] + residual)\n\ndef build_model():\n    return ReferenceRegressor()\n",
+          "weight": 0.75,
+          "feedback": {
+            "gain": 0.5,
+            "hours": 6.0
+          }
+        },
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\n\nclass RecentBL0Bias(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        keep = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[keep], y[keep]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.bias_ = float(np.mean(y - X[:, 0]))\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        return np.maximum(0.0, X[:, 0] + 0.5 * self.bias_)\n\ndef build_model():\n    return RecentBL0Bias()\n",
+          "weight": 0.25,
+          "feedback": {
+            "gain": 1.0,
+            "hours": 18.0
+          }
+        }
+      ],
+      "filters": [],
+      "hypothesis": "后段28条回放的参考预测均值误差为-0.216，呈整体偏低；检验将BL0偏差校正的反馈增益从0.75提高到1.0、保持18小时反馈是否能降低后段低估，同时以原21日Ridge残差模型作为主组件，观察两段回放RMSE是否均不恶化。"
+    },
+    "653af2f9fc7a2303d07e4102d68617c68f340ddb529b02c20e77831d3b04b9c7": {
+      "components": [
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\nfrom sklearn.linear_model import Ridge\n\nclass ReferenceRegressor(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        # 时间列表示实际经过的小时；按最后一条合法训练参考截取历史。\n        selected = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[selected], y[selected]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.training_hours_ = X[:, -1].copy()\n        self.columns_ = [4, 6, 7, 8, 0, 1, 2, 3]\n        residual = y - X[:, 4]\n        self.center_ = np.mean(X[:, self.columns_], axis=0)\n        self.scale_ = np.std(X[:, self.columns_], axis=0)\n        self.scale_ = np.where(self.scale_ < 1e-8, 1., self.scale_)\n        self.bias_ = float(np.mean(residual))\n        self.model_ = Ridge(**{'alpha': 8.0, 'copy_X': True, 'fit_intercept': True, 'max_iter': None, 'positive': False, 'random_state': None, 'solver': 'auto', 'tol': 0.0001})\n        self.model_.fit((X[:, self.columns_] - self.center_) / self.scale_, residual)\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        residual = self.model_.predict((X[:, self.columns_] - self.center_) / self.scale_)\n        return np.maximum(0., X[:, 4] + 1.0 * residual)\n\ndef build_model():\n    return ReferenceRegressor()\n",
+          "weight": 0.75,
+          "feedback": {
+            "gain": 0.5,
+            "hours": 6.0
+          }
+        },
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\n\nclass RecentBL0Bias(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        keep = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[keep], y[keep]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.bias_ = float(np.mean(y - X[:, 0]))\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        return np.maximum(0.0, X[:, 0] + 0.5 * self.bias_)\n\ndef build_model():\n    return RecentBL0Bias()\n",
+          "weight": 0.25,
+          "feedback": {
+            "gain": 0.75,
+            "hours": 18.0
+          }
+        }
+      ],
+      "filters": [
+        {
+          "feature": "BL0",
+          "operator": "<=",
+          "threshold": 20.0
+        },
+        {
+          "feature": "BQ9",
+          "operator": "<=",
+          "threshold": 25.0
+        }
+      ],
+      "hypothesis": "两组件重训窗口近期仍呈现较好稳定误差，但第一组件在稀疏尖峰输入上出现明显过冲；BQ7已见合法服务样本中 BL0=29.3 对应预测误差 +10.54，BQ9=45.5 对应误差 +5.60，说明极端传感值可能让线性残差拟合对少数高杠杆样本过度敏感。按 Self-Healing ML 的训练子集假设，剔除训练参考中 BL0>20 或 BQ9>25 的记录，保留原学习器、组件和配比，检验稳健子集重训能否降低后续维护误差；阈值只依据已见输入与错误形态设定。"
+    },
+    "7980ff8047eb8954314c073ee970311c7b3bd0160ecf3090631ddc22da228a48": {
+      "components": [
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\nfrom sklearn.linear_model import Ridge\n\nclass ReferenceRegressor(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        # 时间列表示实际经过的小时；按最后一条合法训练参考截取历史。\n        selected = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[selected], y[selected]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.training_hours_ = X[:, -1].copy()\n        self.columns_ = [4, 6, 7, 8, 0, 1, 2, 3]\n        residual = y - X[:, 4]\n        self.center_ = np.mean(X[:, self.columns_], axis=0)\n        self.scale_ = np.std(X[:, self.columns_], axis=0)\n        self.scale_ = np.where(self.scale_ < 1e-8, 1., self.scale_)\n        self.bias_ = float(np.mean(residual))\n        self.model_ = Ridge(**{'alpha': 8.0, 'copy_X': True, 'fit_intercept': True, 'max_iter': None, 'positive': False, 'random_state': None, 'solver': 'auto', 'tol': 0.0001})\n        self.model_.fit((X[:, self.columns_] - self.center_) / self.scale_, residual)\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        residual = self.model_.predict((X[:, self.columns_] - self.center_) / self.scale_)\n        return np.maximum(0., X[:, 4] + 1.0 * residual)\n\ndef build_model():\n    return ReferenceRegressor()\n",
+          "weight": 0.75,
+          "feedback": {
+            "gain": 0.25,
+            "hours": 6.0
+          }
+        },
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\n\nclass RecentBL0Bias(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        keep = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[keep], y[keep]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.bias_ = float(np.mean(y - X[:, 0]))\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        return np.maximum(0.0, X[:, 0] + 0.5 * self.bias_)\n\ndef build_model():\n    return RecentBL0Bias()\n",
+          "weight": 0.25,
+          "feedback": {
+            "gain": 0.75,
+            "hours": 18.0
+          }
+        }
+      ],
+      "filters": [
+        {
+          "feature": "BL0",
+          "operator": "<=",
+          "threshold": 20.0
+        }
+      ],
+      "hypothesis": "已见服务误差中最突出的结构仍是 BL0 极端值对应的正向过预测（BL0=29.3 时误差+10.54）；上一轮的诊断记录没有呈现筛选后的新回测误差，故本轮收窄到单一 BL0 上界，避免同时去掉多个输入异常而无法归因。仅从参考训练子集中排除 BL0>20 的高杠杆样本，其他数据、学习器、配比与时间窗保持不变，并把主组件反馈增益由0.5降至0.25以减弱剩余局部误差的快速放大；检验是否降低主组件过冲而不扰动稳定的偏差组件。"
+    },
+    "dd79631b09b88a7b5b7ebac8c95ff04728b28e0a1e0ed6d6cbd64a4a3a50c095": {
+      "components": [
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\nfrom sklearn.linear_model import Ridge\n\nclass RecentRidge14d(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        keep = X[:, -1] >= np.max(X[:, -1]) - 24 * 14 + 1\n        X, y = X[keep], y[keep]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.columns_ = [4, 6, 7, 8, 0, 1, 2, 3]\n        residual = y - X[:, 4]\n        self.center_ = np.mean(X[:, self.columns_], axis=0)\n        self.scale_ = np.std(X[:, self.columns_], axis=0)\n        self.scale_ = np.where(self.scale_ < 1e-8, 1., self.scale_)\n        self.model_ = Ridge(alpha=8.0)\n        self.model_.fit((X[:, self.columns_] - self.center_) / self.scale_, residual)\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        z = (X[:, self.columns_] - self.center_) / self.scale_\n        residual = self.model_.predict(z)\n        return np.maximum(0., X[:, 4] + residual)\n\ndef build_model():\n    return RecentRidge14d()\n",
+          "weight": 1.0,
+          "feedback": {
+            "gain": 0.5,
+            "hours": 6.0
+          }
+        }
+      ],
+      "filters": [],
+      "hypothesis": "近期开启低传感器区间后，现有21日训练窗可能被更早的较高区间稀释；将窗口缩至14日并保持特征、Ridge正则化与基线完全相同，检验近期拟合能否减轻低区间连续负误差，同时观察对偶发传感器尖峰的敏感性。当前证据是28条再拟合观察RMSE为3.97、整体偏差接近零，但末段12条RMSE为2.29且平均误差为-1.27；逐小时服务记录亦见低读数时多次低估和一次BL0=29.3尖峰明显高估。只据本轮试验结果决定是否保留该候选。"
+    },
+    "68ea39aafe9fa6625c8b3db6ecd3077146daae0f159b07193e38facab9a506fa": {
+      "components": [
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\nfrom sklearn.linear_model import Ridge\n\nclass RecentRidge14d(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        keep = X[:, -1] >= np.max(X[:, -1]) - 24 * 14 + 1\n        X, y = X[keep], y[keep]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.columns_ = [4, 6, 7, 8, 0, 1, 2, 3]\n        residual = y - X[:, 4]\n        self.center_ = np.mean(X[:, self.columns_], axis=0)\n        self.scale_ = np.std(X[:, self.columns_], axis=0)\n        self.scale_ = np.where(self.scale_ < 1e-8, 1., self.scale_)\n        self.model_ = Ridge(alpha=8.0)\n        self.model_.fit((X[:, self.columns_] - self.center_) / self.scale_, residual)\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        z = (X[:, self.columns_] - self.center_) / self.scale_\n        residual = self.model_.predict(z)\n        return np.maximum(0., X[:, 4] + residual)\n\ndef build_model():\n    return RecentRidge14d()\n",
+          "weight": 1.0,
+          "feedback": {
+            "gain": 0.75,
+            "hours": 18.0
+          }
+        }
+      ],
+      "filters": [],
+      "hypothesis": "14日窗口使28条再拟合RMSE从3.97降至3.74，但末段12条从2.29微升至2.33、平均低估由-1.27扩大到-1.50；单改窗口没有缓解末段偏差。保持模型和窗口不变，仅提高合法反馈适应强度与跨度（gain 0.75、18小时），检验反馈能否校正近期连续负误差，同时监测较长跨度是否传播异常点影响。"
+    },
+    "29859457c592bd89ceb28e95e3b870bb0143d1bd5f5c30a1518677f3321b2e67": {
+      "components": [
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\nfrom sklearn.linear_model import Ridge\n\nclass ReferenceRegressor(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        # 时间列表示实际经过的小时；按最后一条合法训练参考截取历史。\n        selected = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[selected], y[selected]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.training_hours_ = X[:, -1].copy()\n        self.columns_ = [4, 6, 7, 8, 0, 1, 2, 3]\n        residual = y - X[:, 4]\n        self.center_ = np.mean(X[:, self.columns_], axis=0)\n        self.scale_ = np.std(X[:, self.columns_], axis=0)\n        self.scale_ = np.where(self.scale_ < 1e-8, 1., self.scale_)\n        self.bias_ = float(np.mean(residual))\n        self.model_ = Ridge(**{'alpha': 8.0, 'copy_X': True, 'fit_intercept': True, 'max_iter': None, 'positive': False, 'random_state': None, 'solver': 'auto', 'tol': 0.0001})\n        self.model_.fit((X[:, self.columns_] - self.center_) / self.scale_, residual)\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        residual = self.model_.predict((X[:, self.columns_] - self.center_) / self.scale_)\n        return np.maximum(0., X[:, 4] + 1.0 * residual)\n\ndef build_model():\n    return ReferenceRegressor()\n",
+          "weight": 0.75,
+          "feedback": {
+            "gain": 0.75,
+            "hours": 2.0
+          }
+        },
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\n\nclass RecentBL0Bias(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        keep = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[keep], y[keep]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.bias_ = float(np.mean(y - X[:, 0]))\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        return np.maximum(0.0, X[:, 0] + 0.5 * self.bias_)\n\ndef build_model():\n    return RecentBL0Bias()\n",
+          "weight": 0.25,
+          "feedback": {
+            "gain": 0.75,
+            "hours": 18.0
+          }
+        }
+      ],
+      "filters": [],
+      "hypothesis": "最近12条合法回测误差均值为-1.27，且BL0、median、mean低高分组的误差中位数均为负，显示近期整体低估而非单一输入区间失配。保持完整学习器、特征和配比不变，不做基于这组小样本的筛选；仅提高快速组件对最近反馈的响应并缩短反馈跨度，检验持续低估是否可由短期校正改善，同时保留慢组件作为稳定参照。"
+    },
+    "e365cbf07b13cae9f1910490edb9d3c090466d9844bea98ae158a64f1e995b8c": {
+      "components": [
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\nfrom sklearn.linear_model import HuberRegressor\n\nclass RobustSensorRegressor(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        keep = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[keep], y[keep]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.columns_ = [0, 1, 2, 3, 4, 5, 6, 7, 8]\n        self.lower_ = np.percentile(X[:, :4], 2.0, axis=0)\n        self.upper_ = np.percentile(X[:, :4], 98.0, axis=0)\n        Xc = X.copy()\n        Xc[:, :4] = np.clip(Xc[:, :4], self.lower_, self.upper_)\n        self.center_ = np.mean(Xc[:, self.columns_], axis=0)\n        self.scale_ = np.std(Xc[:, self.columns_], axis=0)\n        self.scale_ = np.where(self.scale_ < 1e-8, 1.0, self.scale_)\n        self.model_ = HuberRegressor(epsilon=1.5, alpha=1.0, max_iter=200)\n        self.model_.fit((Xc[:, self.columns_] - self.center_) / self.scale_, y)\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        Xc = X.copy()\n        Xc[:, :4] = np.clip(Xc[:, :4], self.lower_, self.upper_)\n        pred = self.model_.predict((Xc[:, self.columns_] - self.center_) / self.scale_)\n        return np.maximum(0.0, pred)\n\ndef build_model():\n    return RobustSensorRegressor()",
+          "weight": 1.0,
+          "feedback": {
+            "hours": 6.0,
+            "gain": 0.5
+          }
+        }
+      ],
+      "filters": [],
+      "hypothesis": "当前误差呈整体偏高且少数原始传感器尖峰会强烈拉高参考回归；在相同21天窗口内对四个原始传感器按训练分位数截尾，并以Huber回归直接预测绝对浓度，检验稳健损失与尖峰抑制能否降低后续偏差及RMSE。"
+    },
+    "60487411d9aa39024f2a99bb6461873180c3c4317017c01848b54c23cdf7f860": {
+      "components": [
+        {
+          "weight": 1.0,
+          "feedback": {
+            "hours": 6.0,
+            "gain": 0.5
+          },
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\nfrom sklearn.linear_model import HuberRegressor\n\nclass CalibratedRobustRegressor(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        keep = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[keep], y[keep]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.columns_ = [0, 1, 2, 3, 4, 5, 6, 7, 8]\n        self.lower_ = np.percentile(X[:, :4], 2.0, axis=0)\n        self.upper_ = np.percentile(X[:, :4], 98.0, axis=0)\n        Xc = X.copy()\n        Xc[:, :4] = np.clip(Xc[:, :4], self.lower_, self.upper_)\n        self.center_ = np.mean(Xc[:, self.columns_], axis=0)\n        self.scale_ = np.std(Xc[:, self.columns_], axis=0)\n        self.scale_ = np.where(self.scale_ < 1e-8, 1.0, self.scale_)\n        self.model_ = HuberRegressor(epsilon=1.5, alpha=1.0, max_iter=200)\n        self.model_.fit((Xc[:, self.columns_] - self.center_) / self.scale_, y)\n        fitted = self.model_.predict((Xc[:, self.columns_] - self.center_) / self.scale_)\n        recent = X[:, -1] >= np.max(X[:, -1]) - 24 * 7 + 1\n        self.bias_ = float(np.median(y[recent] - fitted[recent]))\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        Xc = X.copy()\n        Xc[:, :4] = np.clip(Xc[:, :4], self.lower_, self.upper_)\n        pred = self.model_.predict((Xc[:, self.columns_] - self.center_) / self.scale_)\n        return np.maximum(0.0, pred + 0.5 * self.bias_)\n\ndef build_model():\n    return CalibratedRobustRegressor()"
+        }
+      ],
+      "filters": [],
+      "hypothesis": "上一轮稳健截尾将第一探索窗RMSE降至2.605，但第二窗RMSE为3.146，且两窗预测平均误差都为正；在相同稳健模型上以最近7天训练残差中位数作半幅截距校准，检验能否压低持续高估。前一次校准提案因调用未许可的numpy.any被拒绝，本案已移除此调用。"
+    },
+    "8ddbfe802af99e591851a3fd77a46f4d9beb0e9780b3fada24a121cfa083081a": {
+      "components": [
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\nfrom sklearn.linear_model import Ridge\n\nclass ReferenceRegressor(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        # 时间列表示实际经过的小时；按最后一条合法训练参考截取历史。\n        selected = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[selected], y[selected]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.training_hours_ = X[:, -1].copy()\n        self.columns_ = [4, 6, 7, 8, 0, 1, 2, 3]\n        residual = y - X[:, 4]\n        self.center_ = np.mean(X[:, self.columns_], axis=0)\n        self.scale_ = np.std(X[:, self.columns_], axis=0)\n        self.scale_ = np.where(self.scale_ < 1e-8, 1., self.scale_)\n        self.bias_ = float(np.mean(residual))\n        self.model_ = Ridge(**{'alpha': 8.0, 'copy_X': True, 'fit_intercept': True, 'max_iter': None, 'positive': False, 'random_state': None, 'solver': 'auto', 'tol': 0.0001})\n        self.model_.fit((X[:, self.columns_] - self.center_) / self.scale_, residual)\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        residual = self.model_.predict((X[:, self.columns_] - self.center_) / self.scale_)\n        return np.maximum(0., X[:, 4] + 1.0 * residual)\n\ndef build_model():\n    return ReferenceRegressor()\n",
+          "weight": 0.75,
+          "feedback": {
+            "gain": 0.5,
+            "hours": 6.0
+          }
+        },
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\n\nclass RecentBL0Bias(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        keep = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[keep], y[keep]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.bias_ = float(np.mean(y - X[:, 0]))\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        return np.maximum(0.0, X[:, 0] + 0.5 * self.bias_)\n\ndef build_model():\n    return RecentBL0Bias()\n",
+          "weight": 0.25,
+          "feedback": {
+            "gain": 0.75,
+            "hours": 18.0
+          }
+        }
+      ],
+      "filters": [
+        {
+          "feature": "BL0",
+          "operator": "<=",
+          "threshold": 20.0
+        }
+      ],
+      "hypothesis": "合法近期观测中 BL0 出现单点 29.3，而 BT4、BQ9、WM0 及汇总输入均处于约 7–14；同期发出预测 20.75、答案 11，显示单一传感器尖峰可能把基于 BL0 的拟合拉离多传感器共识。筛掉 BL0 高于 20 的训练样本，检验该尖峰型样本是否污染残差模型和 BL0 偏差组件；阈值依据可见尖峰，不根据未来分数选择。"
+    },
+    "f856c538ff4c1e48e741982f70491b2cd9dfddd618c305bd3ac1deacfc2cfd43": {
+      "components": [
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\nfrom sklearn.linear_model import Ridge\n\nclass ReferenceRegressor(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        # 时间列表示实际经过的小时；按最后一条合法训练参考截取历史。\n        selected = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[selected], y[selected]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.training_hours_ = X[:, -1].copy()\n        self.columns_ = [4, 6, 7, 8, 0, 1, 2, 3]\n        residual = y - X[:, 4]\n        self.center_ = np.mean(X[:, self.columns_], axis=0)\n        self.scale_ = np.std(X[:, self.columns_], axis=0)\n        self.scale_ = np.where(self.scale_ < 1e-8, 1., self.scale_)\n        self.bias_ = float(np.mean(residual))\n        self.model_ = Ridge(**{'alpha': 8.0, 'copy_X': True, 'fit_intercept': True, 'max_iter': None, 'positive': False, 'random_state': None, 'solver': 'auto', 'tol': 0.0001})\n        self.model_.fit((X[:, self.columns_] - self.center_) / self.scale_, residual)\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        residual = self.model_.predict((X[:, self.columns_] - self.center_) / self.scale_)\n        return np.maximum(0., X[:, 4] + 1.0 * residual)\n\ndef build_model():\n    return ReferenceRegressor()\n",
+          "weight": 0.75,
+          "feedback": {
+            "gain": 0.5,
+            "hours": 6.0
+          }
+        },
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\n\nclass RecentBL0Bias(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        keep = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[keep], y[keep]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.bias_ = float(np.mean(y - X[:, 0]))\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        return np.maximum(0.0, X[:, 0] + 0.5 * self.bias_)\n\ndef build_model():\n    return RecentBL0Bias()\n",
+          "weight": 0.25,
+          "feedback": {
+            "gain": 0.75,
+            "hours": 6.0
+          }
+        }
+      ],
+      "filters": [],
+      "hypothesis": "首案筛除 BL0>20 后两个回测窗口 RMSE 与原重训观测完全相同，说明该筛选未改变本次有效训练子集，单点尖峰假设未得到支持。可见回测仍有整体正误差（后窗 +0.58），且多次较低预测值遇到答案 10–15 时出现明显低估，同时较低答案时又常高估，提示固定长反馈窗口可能跟不上负荷水平变化。缩短第二个、BL0 偏差组件的反馈记忆，由 18 小时改为 6 小时并保持增益 0.75，检验更快吸收合法近期反馈能否改善不同水平之间的响应。"
+    },
+    "47af9d9fa8e4b1cc37af5057ecbdf86c03500feac5da2d4c0c6876a12847a744": {
+      "components": [
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\nfrom sklearn.linear_model import Ridge\n\nclass BiasAdjustedReference(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        selected = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[selected], y[selected]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.columns_ = [4, 6, 7, 8, 0, 1, 2, 3]\n        residual = y - X[:, 4]\n        self.center_ = np.mean(X[:, self.columns_], axis=0)\n        self.scale_ = np.std(X[:, self.columns_], axis=0)\n        self.scale_ = np.where(self.scale_ < 1e-8, 1., self.scale_)\n        self.model_ = Ridge(alpha=8.0)\n        self.model_.fit((X[:, self.columns_] - self.center_) / self.scale_, residual)\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        z = (X[:, self.columns_] - self.center_) / self.scale_\n        residual = self.model_.predict(z)\n        return np.maximum(0., X[:, 4] + residual + 0.35)\n\ndef build_model():\n    return BiasAdjustedReference()\n",
+          "weight": 1.0,
+          "feedback": {
+            "gain": 0.5,
+            "hours": 6.0
+          }
+        }
+      ],
+      "filters": [],
+      "hypothesis": "两段可见回放的整体误差均为负（分别为 -0.584 与 -0.346），即当前组合偏低；只在原21日Ridge残差校正输出上加固定 +0.35 浓度，检验能否消除小幅系统性低估，同时保留原特征、窗口和学习器。"
+    },
+    "8068ba778929e40fe75e084c4c9271387272554dd3390d9260256143fb445d9f": {
+      "components": [
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\nfrom sklearn.linear_model import Ridge\n\nclass MildBiasAdjustedReference(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        selected = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[selected], y[selected]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.columns_ = [4, 6, 7, 8, 0, 1, 2, 3]\n        residual = y - X[:, 4]\n        self.center_ = np.mean(X[:, self.columns_], axis=0)\n        self.scale_ = np.std(X[:, self.columns_], axis=0)\n        self.scale_ = np.where(self.scale_ < 1e-8, 1., self.scale_)\n        self.model_ = Ridge(alpha=8.0)\n        self.model_.fit((X[:, self.columns_] - self.center_) / self.scale_, residual)\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        z = (X[:, self.columns_] - self.center_) / self.scale_\n        residual = self.model_.predict(z)\n        return np.maximum(0., X[:, 4] + residual + 0.15)\n\ndef build_model():\n    return MildBiasAdjustedReference()\n",
+          "weight": 1.0,
+          "feedback": {
+            "gain": 0.5,
+            "hours": 6.0
+          }
+        }
+      ],
+      "filters": [],
+      "hypothesis": "上一案 +0.35 将第二段均值误差从 -0.346 改善到 -0.098 且 RMSE 从 0.927 降至 0.897，但第一段 RMSE 从 3.300 升至 3.773；这提示统一偏移可能过大或受异质误差影响。本案保持21日Ridge残差模型与其他条件不变，将偏移缩至 +0.15，检验较温和校正是否兼顾两段。"
+    },
+    "92ed614cb4498fdfae67701750f201eb6a69ea84e9240b39c1cea34cada03bea": {
+      "components": [
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\nfrom sklearn.linear_model import Ridge\n\nclass ReferenceRegressor(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        # 时间列表示实际经过的小时；按最后一条合法训练参考截取历史。\n        selected = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[selected], y[selected]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.training_hours_ = X[:, -1].copy()\n        self.columns_ = [4, 6, 7, 8, 0, 1, 2, 3]\n        residual = y - X[:, 4]\n        self.center_ = np.mean(X[:, self.columns_], axis=0)\n        self.scale_ = np.std(X[:, self.columns_], axis=0)\n        self.scale_ = np.where(self.scale_ < 1e-8, 1., self.scale_)\n        self.bias_ = float(np.mean(residual))\n        self.model_ = Ridge(**{'alpha': 8.0, 'copy_X': True, 'fit_intercept': True, 'max_iter': None, 'positive': False, 'random_state': None, 'solver': 'auto', 'tol': 0.0001})\n        self.model_.fit((X[:, self.columns_] - self.center_) / self.scale_, residual)\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        residual = self.model_.predict((X[:, self.columns_] - self.center_) / self.scale_)\n        return np.maximum(0., X[:, 4] + 1.0 * residual)\n\ndef build_model():\n    return ReferenceRegressor()\n",
+          "weight": 0.75,
+          "feedback": {
+            "gain": 1.0,
+            "hours": 6.0
+          }
+        },
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\n\nclass RecentBL0Bias(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        keep = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[keep], y[keep]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.bias_ = float(np.mean(y - X[:, 0]))\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        return np.maximum(0.0, X[:, 0] + 0.5 * self.bias_)\n\ndef build_model():\n    return RecentBL0Bias()\n",
+          "weight": 0.25,
+          "feedback": {
+            "gain": 1.0,
+            "hours": 18.0
+          }
+        }
+      ],
+      "filters": [],
+      "hypothesis": "最近28条已发预测中，两个组件均有负平均误差（分别为-0.584与-0.346），且第一组件高BL0区误差更负；尝试让既有反馈更充分吸收近期低估，不改变训练样本、学习器或配比。若反馈能纠正系统性低估，近期误差应下降；BL0分层误差仍用于判断该机制是否足够。"
+    },
+    "c990c1e1d5f48790896c16a320443de2a90ca10025a203f276181e2970597d16": {
+      "components": [
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\nfrom sklearn.linear_model import Ridge\n\nclass ReferenceRegressor(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        # 时间列表示实际经过的小时；按最后一条合法训练参考截取历史。\n        selected = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[selected], y[selected]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.training_hours_ = X[:, -1].copy()\n        self.columns_ = [4, 6, 7, 8, 0, 1, 2, 3]\n        residual = y - X[:, 4]\n        self.center_ = np.mean(X[:, self.columns_], axis=0)\n        self.scale_ = np.std(X[:, self.columns_], axis=0)\n        self.scale_ = np.where(self.scale_ < 1e-8, 1., self.scale_)\n        self.bias_ = float(np.mean(residual))\n        self.model_ = Ridge(**{'alpha': 8.0, 'copy_X': True, 'fit_intercept': True, 'max_iter': None, 'positive': False, 'random_state': None, 'solver': 'auto', 'tol': 0.0001})\n        self.model_.fit((X[:, self.columns_] - self.center_) / self.scale_, residual)\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        residual = self.model_.predict((X[:, self.columns_] - self.center_) / self.scale_)\n        return np.maximum(0., X[:, 4] + 1.0 * residual)\n\ndef build_model():\n    return ReferenceRegressor()\n",
+          "weight": 0.75,
+          "feedback": {
+            "gain": 1.0,
+            "hours": 6.0
+          }
+        },
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\n\nclass RecentBL0Bias(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        keep = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[keep], y[keep]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.bias_ = float(np.mean(y - X[:, 0]))\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        return np.maximum(0.0, X[:, 0] + 0.5 * self.bias_)\n\ndef build_model():\n    return RecentBL0Bias()\n",
+          "weight": 0.25,
+          "feedback": {
+            "gain": 1.0,
+            "hours": 18.0
+          }
+        }
+      ],
+      "filters": [
+        {
+          "feature": "BL0",
+          "operator": ">",
+          "threshold": 5.3
+        }
+      ],
+      "hypothesis": "上一案增强反馈后，两组件平均误差分别从-0.584、-0.346改善到-0.418、-0.257；但第一组件RMSE从3.300升至3.452，且其BL0高于5.3的样本仍明显低估（误差-1.137），低值组则略高估（+0.301）。尝试仅用训练期BL0>5.3的样本重训完整组合，检验让第一组件更贴近高值误差区能否降低该组误差；保留已改善的反馈设置。"
+    },
+    "22fa54209f2e38224d974c9824cd8fba3a8a22468a51cb3480007f5f571ed7ba": {
+      "components": [
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\nfrom sklearn.linear_model import Ridge\n\nclass ReferenceRegressor(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        # 时间列表示实际经过的小时；按最后一条合法训练参考截取历史。\n        selected = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[selected], y[selected]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.training_hours_ = X[:, -1].copy()\n        self.columns_ = [4, 6, 7, 8, 0, 1, 2, 3]\n        residual = y - X[:, 4]\n        self.center_ = np.mean(X[:, self.columns_], axis=0)\n        self.scale_ = np.std(X[:, self.columns_], axis=0)\n        self.scale_ = np.where(self.scale_ < 1e-8, 1., self.scale_)\n        self.bias_ = float(np.mean(residual))\n        self.model_ = Ridge(**{'alpha': 8.0, 'copy_X': True, 'fit_intercept': True, 'max_iter': None, 'positive': False, 'random_state': None, 'solver': 'auto', 'tol': 0.0001})\n        self.model_.fit((X[:, self.columns_] - self.center_) / self.scale_, residual)\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        residual = self.model_.predict((X[:, self.columns_] - self.center_) / self.scale_)\n        return np.maximum(0., X[:, 4] + 1.0 * residual)\n\ndef build_model():\n    return ReferenceRegressor()\n",
+          "weight": 0.75,
+          "feedback": {
+            "gain": 1.0,
+            "hours": 6.0
+          }
+        },
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\n\nclass RecentBL0Bias(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        keep = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[keep], y[keep]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.bias_ = float(np.mean(y - X[:, 0]))\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        return np.maximum(0.0, X[:, 0] + 0.5 * self.bias_)\n\ndef build_model():\n    return RecentBL0Bias()\n",
+          "weight": 0.25,
+          "feedback": {
+            "gain": 1.0,
+            "hours": 18.0
+          }
+        }
+      ],
+      "filters": [
+        {
+          "feature": "weekend",
+          "operator": ">",
+          "threshold": 0.0
+        }
+      ],
+      "hypothesis": "第二案的BL0>5.3筛选使第一组件RMSE从3.300降到3.264，但高BL0组仍低估（-1.121）；第二组件RMSE升至0.937。当前最大分层误差出现在weekend>0组（第一组件-1.347，对照组-0.113）。尝试仅用训练期周末样本重训完整组合，检验专门拟合该误差集中的时段能否改善周末预测；保留已用反馈设置。"
+    },
+    "3493c554099e1e7f2b9ce0c0d62643270cb65a154617db6093f95e1f0af5af59": {
+      "components": [
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\nfrom sklearn.linear_model import HuberRegressor\n\nclass ReferenceRegressor(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        # 时间列表示实际经过的小时；按最后一条合法训练参考截取历史。\n        selected = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[selected], y[selected]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.training_hours_ = X[:, -1].copy()\n        self.columns_ = [4, 6, 7, 8, 0, 1, 2, 3]\n        residual = y - X[:, 4]\n        self.center_ = np.mean(X[:, self.columns_], axis=0)\n        self.scale_ = np.std(X[:, self.columns_], axis=0)\n        self.scale_ = np.where(self.scale_ < 1e-8, 1., self.scale_)\n        self.bias_ = float(np.mean(residual))\n        self.model_ = HuberRegressor(epsilon=1.35, alpha=0.0001, fit_intercept=True, max_iter=200, tol=0.0001)\n        self.model_.fit((X[:, self.columns_] - self.center_) / self.scale_, residual)\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        residual = self.model_.predict((X[:, self.columns_] - self.center_) / self.scale_)\n        return np.maximum(0., X[:, 4] + 1.0 * residual)\n\ndef build_model():\n    return ReferenceRegressor()\n",
+          "weight": 0.75,
+          "feedback": {
+            "gain": 0.5,
+            "hours": 6.0
+          }
+        },
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\n\nclass RecentBL0Bias(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        keep = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[keep], y[keep]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.bias_ = float(np.mean(y - X[:, 0]))\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        return np.maximum(0.0, X[:, 0] + 0.5 * self.bias_)\n\ndef build_model():\n    return RecentBL0Bias()\n",
+          "weight": 0.25,
+          "feedback": {
+            "gain": 0.75,
+            "hours": 18.0
+          }
+        }
+      ],
+      "filters": [],
+      "hypothesis": "当前重训组合第一窗RMSE升至3.39且残差中存在约+10.13和-7.61的突发大误差；第二窗略优于父版。仅替换主残差回归器为Huber稳健回归，检验降低少数大残差对拟合的牵引能否改善整套窗口误差，同时保留传感器基线、训练窗口、权重与反馈设置。"
+    },
+    "2ff3b70fb5e233f9ab3c0cf52ab88f4c2e2fded728e231e86f576e92ca6dff1a": {
+      "components": [
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\nfrom sklearn.linear_model import Ridge\n\nclass ReferenceRegressor(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        # 时间列表示实际经过的小时；按最后一条合法训练参考截取历史。\n        selected = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[selected], y[selected]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.training_hours_ = X[:, -1].copy()\n        self.columns_ = [4, 6, 7, 8, 0, 1, 2, 3]\n        residual = y - X[:, 4]\n        self.center_ = np.mean(X[:, self.columns_], axis=0)\n        self.scale_ = np.std(X[:, self.columns_], axis=0)\n        self.scale_ = np.where(self.scale_ < 1e-8, 1., self.scale_)\n        self.bias_ = float(np.mean(residual))\n        self.model_ = Ridge(**{'alpha': 8.0, 'copy_X': True, 'fit_intercept': True, 'max_iter': None, 'positive': False, 'random_state': None, 'solver': 'auto', 'tol': 0.0001})\n        self.model_.fit((X[:, self.columns_] - self.center_) / self.scale_, residual)\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        residual = self.model_.predict((X[:, self.columns_] - self.center_) / self.scale_)\n        return np.maximum(0., X[:, 4] + 1.0 * residual)\n\ndef build_model():\n    return ReferenceRegressor()\n",
+          "weight": 0.75,
+          "feedback": {
+            "gain": 0.5,
+            "hours": 6.0
+          }
+        },
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\n\nclass RecentBL0Bias(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        keep = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[keep], y[keep]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        residual = y - X[:, 0]\n        self.bias_ = float(np.median(residual))\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        return np.maximum(0.0, X[:, 0] + 0.5 * self.bias_)\n\ndef build_model():\n    return RecentBL0Bias()\n",
+          "weight": 0.25,
+          "feedback": {
+            "gain": 0.75,
+            "hours": 18.0
+          }
+        }
+      ],
+      "filters": [],
+      "hypothesis": "去组件消融显示第0个Ridge残差组件是主要有效部分（移除后两个窗RMSE从3.386/0.878升至5.404/1.183）；第1个RecentBL0Bias组件只在首窗带来小幅帮助（移除后3.523），次窗反而略好（0.857对0.878）。错例中首窗存在明显传感器尖峰与反向误差（如BL0=29.3而答案7.3、以及答案9.9但BL0=4.1），均值偏置容易被异常残差牵动。针对该次要偏置部件，仅将21日残差均值改为中位数，保留预测锚点、半强度收缩、训练窗和权重；检验稳健位置估计能否降低尖峰对偏置的影响。"
+    },
+    "c6362b795fbdca0f11116ea6791a90ae692d5b832449b724721f1fb52b7d60ea": {
+      "components": [
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\nfrom sklearn.linear_model import Ridge\n\nclass ReferenceRegressor(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        selected = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[selected], y[selected]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.columns_ = [4, 6, 7, 8, 0, 1, 2, 3]\n        residual = y - X[:, 4]\n        self.center_ = np.mean(X[:, self.columns_], axis=0)\n        self.scale_ = np.std(X[:, self.columns_], axis=0)\n        self.scale_ = np.where(self.scale_ < 1e-8, 1., self.scale_)\n        self.bias_ = float(np.mean(residual))\n        features = np.clip((X[:, self.columns_] - self.center_) / self.scale_, -3.0, 3.0)\n        self.model_ = Ridge(**{'alpha': 8.0, 'copy_X': True, 'fit_intercept': True, 'max_iter': None, 'positive': False, 'random_state': None, 'solver': 'auto', 'tol': 0.0001})\n        self.model_.fit(features, residual)\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        features = np.clip((X[:, self.columns_] - self.center_) / self.scale_, -3.0, 3.0)\n        residual = self.model_.predict(features)\n        return np.maximum(0., X[:, 4] + 1.0 * residual)\n\ndef build_model():\n    return ReferenceRegressor()\n",
+          "weight": 0.75,
+          "feedback": {
+            "gain": 0.5,
+            "hours": 6.0
+          }
+        },
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\n\nclass RecentBL0Bias(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        keep = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[keep], y[keep]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.bias_ = float(np.mean(y - X[:, 0]))\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        return np.maximum(0.0, X[:, 0] + 0.5 * self.bias_)\n\ndef build_model():\n    return RecentBL0Bias()\n",
+          "weight": 0.25,
+          "feedback": {
+            "gain": 0.75,
+            "hours": 18.0
+          }
+        }
+      ],
+      "filters": [],
+      "hypothesis": "去组件消融表明第0个Ridge残差组件承担主要收益（移除后RMSE从3.357/0.942升至5.286/1.250），第1个偏置组件的增益较小且次窗移除略好。错例中有少数输入传感器极端值，例如BL0=29.3时答案7.0而预测17.54、BQ9=45.5时答案5.9而预测11.50，说明第0组件的线性特征映射可能被少量高杠杆观测牵动。只改第0组件，在标准化后的输入上统一截断到±3，保留训练窗、Ridge、残差目标和其他字段；检验限制极端输入对全局线性系数的影响能否降低尖峰错例而不损害常规区间。"
+    },
+    "78e8536426b71b815d2a1cc131f126f298b7be8202b721f41b7ffc81df114c3e": {
+      "components": [
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\nfrom sklearn.linear_model import Ridge\n\nclass ReferenceRegressor(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        # 时间列表示实际经过的小时；按最后一条合法训练参考截取历史。\n        selected = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[selected], y[selected]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.training_hours_ = X[:, -1].copy()\n        self.columns_ = [4, 6, 7, 8, 0, 1, 2, 3]\n        residual = y - X[:, 4]\n        self.center_ = np.mean(X[:, self.columns_], axis=0)\n        self.scale_ = np.std(X[:, self.columns_], axis=0)\n        self.scale_ = np.where(self.scale_ < 1e-8, 1., self.scale_)\n        self.bias_ = float(np.mean(residual))\n        self.model_ = Ridge(**{'alpha': 8.0, 'copy_X': True, 'fit_intercept': True, 'max_iter': None, 'positive': False, 'random_state': None, 'solver': 'auto', 'tol': 0.0001})\n        self.model_.fit((X[:, self.columns_] - self.center_) / self.scale_, residual)\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        residual = self.model_.predict((X[:, self.columns_] - self.center_) / self.scale_)\n        return np.maximum(0., X[:, 4] + 1.0 * residual)\n\ndef build_model():\n    return ReferenceRegressor()\n",
+          "weight": 0.95,
+          "feedback": {
+            "gain": 0.5,
+            "hours": 6.0
+          }
+        },
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\n\nclass RecentBL0Bias(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        keep = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[keep], y[keep]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.bias_ = float(np.mean(y - X[:, 0]))\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        return np.maximum(0.0, X[:, 0] + 0.5 * self.bias_)\n\ndef build_model():\n    return RecentBL0Bias()\n",
+          "weight": 0.05,
+          "feedback": {
+            "gain": 0.75,
+            "hours": 18.0
+          }
+        }
+      ],
+      "filters": [],
+      "hypothesis": "截断第0组件后的消融显示第1组件在首窗使RMSE由2.234升至2.662，在第二窗仅由0.958降至0.954，提示其0.25权重对首窗有明显拖累，收益只在次窗略好。编辑契约要求各保留组件正权重，因此本轮保留第1组件但将其权重从0.25降至0.05，并将第0组件设为0.95；不改已验证的第0组件截断。该小权重试验用于判断是否能保留次窗的微小补偿，同时减少首窗损失。"
+    },
+    "d3c668fa459f6bfa7e51812a8f5e41ecb9923aaf688ae23c5eb2cae35fa526e4": {
+      "components": [
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\nfrom sklearn.linear_model import Ridge\n\nclass ReferenceRegressor(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        # 时间列表示实际经过的小时；按最后一条合法训练参考截取历史。\n        selected = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[selected], y[selected]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.training_hours_ = X[:, -1].copy()\n        self.columns_ = [4, 6, 7, 8, 0, 1, 2, 3]\n        residual = y - X[:, 4]\n        self.center_ = np.mean(X[:, self.columns_], axis=0)\n        self.scale_ = np.std(X[:, self.columns_], axis=0)\n        self.scale_ = np.where(self.scale_ < 1e-8, 1., self.scale_)\n        self.bias_ = float(np.mean(residual))\n        self.model_ = Ridge(**{'alpha': 8.0, 'copy_X': True, 'fit_intercept': True, 'max_iter': None, 'positive': False, 'random_state': None, 'solver': 'auto', 'tol': 0.0001})\n        self.model_.fit((X[:, self.columns_] - self.center_) / self.scale_, residual)\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        residual = self.model_.predict((X[:, self.columns_] - self.center_) / self.scale_)\n        return np.maximum(0., X[:, 4] + 1.25 * residual)\n\ndef build_model():\n    return ReferenceRegressor()\n",
+          "weight": 0.75,
+          "feedback": {
+            "gain": 0.5,
+            "hours": 6.0
+          }
+        },
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\n\nclass RecentBL0Bias(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        keep = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[keep], y[keep]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.bias_ = float(np.mean(y - X[:, 0]))\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        return np.maximum(0.0, X[:, 0] + 0.5 * self.bias_)\n\ndef build_model():\n    return RecentBL0Bias()\n",
+          "weight": 0.25,
+          "feedback": {
+            "gain": 0.75,
+            "hours": 18.0
+          }
+        }
+      ],
+      "filters": [],
+      "hypothesis": "合法服务记录中多次出现预测低于答案的峰值误差（例如小时4320低8.45、4500低6.48、4818低6.44），但4590又高出9.89；当前重训在第一窗劣于父版而第二窗较好。只把主模型残差回加系数从1.0提高到1.25，检验增强残差幅度能否追回峰值低估，同时用完整两窗RMSE观察过预测风险。"
+    },
+    "da65e7df18ac82aea49a9063cd57c902ff2d0a30c57dd9415485cde452bd0c16": {
+      "components": [
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\nfrom sklearn.linear_model import Ridge\n\nclass ReferenceRegressor(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        # 时间列表示实际经过的小时；按最后一条合法训练参考截取历史。\n        selected = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[selected], y[selected]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.training_hours_ = X[:, -1].copy()\n        self.columns_ = [4, 6, 7, 8, 0, 1, 2, 3]\n        residual = y - X[:, 4]\n        self.center_ = np.mean(X[:, self.columns_], axis=0)\n        self.scale_ = np.std(X[:, self.columns_], axis=0)\n        self.scale_ = np.where(self.scale_ < 1e-8, 1., self.scale_)\n        self.bias_ = float(np.mean(residual))\n        self.model_ = Ridge(**{'alpha': 8.0, 'copy_X': True, 'fit_intercept': True, 'max_iter': None, 'positive': False, 'random_state': None, 'solver': 'auto', 'tol': 0.0001})\n        self.model_.fit((X[:, self.columns_] - self.center_) / self.scale_, residual)\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        residual = self.model_.predict((X[:, self.columns_] - self.center_) / self.scale_)\n        return np.maximum(0., X[:, 4] + 1.0 * residual)\n\ndef build_model():\n    return ReferenceRegressor()\n",
+          "weight": 0.99,
+          "feedback": {
+            "gain": 0.5,
+            "hours": 6.0
+          }
+        },
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\n\nclass RecentBL0Bias(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        keep = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[keep], y[keep]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.bias_ = float(np.mean(y - X[:, 0]))\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        return np.maximum(0.0, X[:, 0] + 0.5 * self.bias_)\n\ndef build_model():\n    return RecentBL0Bias()\n",
+          "weight": 0.01,
+          "feedback": {
+            "gain": 0.75,
+            "hours": 18.0
+          }
+        }
+      ],
+      "filters": [],
+      "hypothesis": "把第1组件权重降到0.05后，两窗RMSE由3.969/2.290降到3.583/2.179，但仍略高于其去组件消融的3.503/2.157；在两个窗里消融方向都一致，且第二窗只有12条。沿着已实测的权重方向再做一次保守逼近，将第1组件权重降至0.01、第0组件升至0.99，保留两个组件的正权重和原始源码，检查弱化第1组件能否继续改善；不据此单独判定正式采用。"
+    },
+    "334430b38abb6bd7971761274ad899c0ae5d57766d8c0027dd8e1e737f7d73cd": {
+      "components": [
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\nfrom sklearn.linear_model import Ridge\n\nclass ReferenceRegressor(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        # 时间列表示实际经过的小时；按最后一条合法训练参考截取历史。\n        selected = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[selected], y[selected]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.training_hours_ = X[:, -1].copy()\n        self.columns_ = [4, 6, 7, 8, 0, 1, 2, 3]\n        residual = y - X[:, 4]\n        self.center_ = np.mean(X[:, self.columns_], axis=0)\n        self.scale_ = np.std(X[:, self.columns_], axis=0)\n        self.scale_ = np.where(self.scale_ < 1e-8, 1., self.scale_)\n        self.bias_ = float(np.mean(residual))\n        self.model_ = Ridge(**{'alpha': 8.0, 'copy_X': True, 'fit_intercept': True, 'max_iter': None, 'positive': False, 'random_state': None, 'solver': 'auto', 'tol': 0.0001})\n        self.model_.fit((X[:, self.columns_] - self.center_) / self.scale_, residual)\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        residual = self.model_.predict((X[:, self.columns_] - self.center_) / self.scale_)\n        return np.maximum(0., X[:, 4] + 1.0 * residual)\n\ndef build_model():\n    return ReferenceRegressor()\n",
+          "weight": 0.75,
+          "feedback": {
+            "gain": 0.5,
+            "hours": 6.0
+          }
+        },
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\n\nclass RecentBL0Bias(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        keep = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[keep], y[keep]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.bias_ = float(np.median(y - X[:, 0]))\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        return np.maximum(0.0, X[:, 0] + 0.5 * self.bias_)\n\ndef build_model():\n    return RecentBL0Bias()\n",
+          "weight": 0.25,
+          "feedback": {
+            "gain": 0.75,
+            "hours": 18.0
+          }
+        }
+      ],
+      "filters": [],
+      "hypothesis": "去组件消融表明第0个Ridge残差组件是主要有效部件（移除后RMSE从3.162/3.029升至4.978/3.082），而第1个RecentBL0Bias组件在首窗有害、次窗略有帮助。首窗整体偏高且错例含BL0=29.3时预测20.75而答案11，及BL0=5.6时预测8.99而答案1，说明均值偏置可能被异常残差拉动。只把第1组件21日残差均值改为中位数，保留其余实现和权重，检验稳健位置估计能否减少异常残差影响而保住次窗的小幅贡献。"
+    },
+    "f6fcbd9cb0c8473a6701adecaf8c10dbeeff047f7f68729d3697ac2a9f074df4": {
+      "components": [
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\nfrom sklearn.linear_model import Ridge\n\nclass ReferenceRegressor(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        # 时间列表示实际经过的小时；按最后一条合法训练参考截取历史。\n        selected = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[selected], y[selected]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.training_hours_ = X[:, -1].copy()\n        self.columns_ = [4, 6, 7, 8, 0, 1, 2, 3]\n        residual = y - X[:, 4]\n        self.center_ = np.mean(X[:, self.columns_], axis=0)\n        self.scale_ = np.std(X[:, self.columns_], axis=0)\n        self.scale_ = np.where(self.scale_ < 1e-8, 1., self.scale_)\n        self.bias_ = float(np.mean(residual))\n        self.model_ = Ridge(**{'alpha': 8.0, 'copy_X': True, 'fit_intercept': True, 'max_iter': None, 'positive': False, 'random_state': None, 'solver': 'auto', 'tol': 0.0001})\n        self.model_.fit((X[:, self.columns_] - self.center_) / self.scale_, residual)\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        residual = self.model_.predict((X[:, self.columns_] - self.center_) / self.scale_)\n        return np.maximum(0., X[:, 4] + 1.0 * residual)\n\ndef build_model():\n    return ReferenceRegressor()\n",
+          "weight": 0.9,
+          "feedback": {
+            "gain": 0.5,
+            "hours": 6.0
+          }
+        },
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\n\nclass RecentBL0Bias(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        keep = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[keep], y[keep]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.bias_ = float(np.mean(y - X[:, 0]))\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        return np.maximum(0.0, X[:, 0] + 0.5 * self.bias_)\n\ndef build_model():\n    return RecentBL0Bias()\n",
+          "weight": 0.1,
+          "feedback": {
+            "gain": 0.75,
+            "hours": 18.0
+          }
+        }
+      ],
+      "filters": [],
+      "hypothesis": "针对第1偏置组件的中位数改动没有改善：RMSE由3.162/3.029变为3.163/3.030；当前组件消融显示移除第1组件会让首窗从3.162降至2.862，但次窗从3.029升至3.171，说明作用随窗不同。回到reference_plan原均值实现，仅将权重由0.75/0.25改为0.90/0.10，检验保留少量次窗补偿是否能减少首窗中过预测成分；保持其他设置不变。"
+    },
+    "6a130f21a6c87dd9411b27ca5ac6f007c3504558d7cf50de8e96397834b8bf82": {
+      "components": [
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\nfrom sklearn.linear_model import Ridge\n\nclass ReferenceRegressor(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        # 时间列表示实际经过的小时；按最后一条合法训练参考截取历史。\n        selected = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[selected], y[selected]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.training_hours_ = X[:, -1].copy()\n        self.columns_ = [4, 6, 7, 8, 0, 1, 2, 3]\n        residual = y - X[:, 4]\n        self.center_ = np.mean(X[:, self.columns_], axis=0)\n        self.scale_ = np.std(X[:, self.columns_], axis=0)\n        self.scale_ = np.where(self.scale_ < 1e-8, 1., self.scale_)\n        self.bias_ = float(np.mean(residual))\n        self.model_ = Ridge(**{'alpha': 8.0, 'copy_X': True, 'fit_intercept': True, 'max_iter': None, 'positive': False, 'random_state': None, 'solver': 'auto', 'tol': 0.0001})\n        self.model_.fit((X[:, self.columns_] - self.center_) / self.scale_, residual)\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        residual = self.model_.predict((X[:, self.columns_] - self.center_) / self.scale_)\n        return np.maximum(0., X[:, 4] + 1.0 * residual)\n\ndef build_model():\n    return ReferenceRegressor()\n",
+          "weight": 0.85,
+          "feedback": {
+            "gain": 0.5,
+            "hours": 6.0
+          }
+        },
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\n\nclass RecentBL0Bias(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        keep = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[keep], y[keep]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.bias_ = float(np.mean(y - X[:, 0]))\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        return np.maximum(0.0, X[:, 0] + 0.5 * self.bias_)\n\ndef build_model():\n    return RecentBL0Bias()\n",
+          "weight": 0.15,
+          "feedback": {
+            "gain": 0.75,
+            "hours": 18.0
+          }
+        }
+      ],
+      "filters": [],
+      "hypothesis": "均值版本权重0.90/0.10后，首窗RMSE从3.162降至2.954，第二窗从3.029升至3.106；两窗权重取舍方向相反，且第1组件消融在首窗有利、次窗有害。基于这次直接的整套提案结果，做一次中间权重0.85/0.15，保留reference_plan源码，检查能否在首窗收益与次窗退化之间取得更平衡的真实误差；这是本站最后一次提案，按两个窗分别记录。"
+    },
+    "6ea03a6558f413f81e8ef5dcf4e19091a5dce8b3acc9c4745fb3731700dc3b57": {
+      "components": [
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\nfrom sklearn.ensemble import ExtraTreesRegressor\n\nclass ReferenceRegressor(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        # 时间列表示实际经过的小时；按最后一条合法训练参考截取历史。\n        selected = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[selected], y[selected]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.training_hours_ = X[:, -1].copy()\n        self.columns_ = [4, 6, 7, 8, 0, 1, 2, 3]\n        residual = y - X[:, 4]\n        self.center_ = np.mean(X[:, self.columns_], axis=0)\n        self.scale_ = np.std(X[:, self.columns_], axis=0)\n        self.scale_ = np.where(self.scale_ < 1e-8, 1., self.scale_)\n        self.bias_ = float(np.mean(residual))\n        self.model_ = ExtraTreesRegressor(n_estimators=64, max_depth=6, min_samples_leaf=4, random_state=0, n_jobs=1)\n        self.model_.fit((X[:, self.columns_] - self.center_) / self.scale_, residual)\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        residual = self.model_.predict((X[:, self.columns_] - self.center_) / self.scale_)\n        return np.maximum(0., X[:, 4] + 1.0 * residual)\n\ndef build_model():\n    return ReferenceRegressor()\n",
+          "weight": 0.75,
+          "feedback": {
+            "gain": 0.5,
+            "hours": 6.0
+          }
+        },
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\n\nclass RecentBL0Bias(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        keep = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[keep], y[keep]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.bias_ = float(np.mean(y - X[:, 0]))\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        return np.maximum(0.0, X[:, 0] + 0.5 * self.bias_)\n\ndef build_model():\n    return RecentBL0Bias()\n",
+          "weight": 0.25,
+          "feedback": {
+            "gain": 0.75,
+            "hours": 18.0
+          }
+        }
+      ],
+      "filters": [],
+      "hypothesis": "重训相对父版第一窗明显改善（RMSE 3.30 对3.86），第二窗也略好（0.93 对0.95），但仍有高峰漏报（小时4590低18.3）及随后反向误差。在线性残差外，尝试64棵浅层ExtraTrees拟合传感器与残差的非线性关系，保留背景加回和第二组件，观察整套窗口是否能更贴合峰谷变化。"
+    },
+    "62f5bdc445c7994a040d4e8117d12f71e7f4232cb9169582aa945505abbe7853": {
+      "components": [
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\n\nclass RecentBL0Bias(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        keep = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[keep], y[keep]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.bias_ = float(np.mean(y - X[:, 0]))\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        return np.maximum(0.0, X[:, 0] + 0.5 * self.bias_)\n\ndef build_model():\n    return RecentBL0Bias()\n",
+          "weight": 1.0,
+          "feedback": {
+            "gain": 0.75,
+            "hours": 18.0
+          }
+        }
+      ],
+      "filters": [],
+      "hypothesis": "上轮提交的零权重编辑被执行契约拒绝；本案用完整单组件方案直接检验相同的消融判断。前案ExtraTrees候选去主模型后RMSE为2.08和0.86，优于父版3.86和0.95；完整保留原BL0偏置组件作为唯一预测器，验证该表现是否能复现。"
+    },
+    "a8b57c0b23fecf795d09fb5885720da5bd6b69ab920257e562369758a81dd954": {
+      "components": [
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\nfrom sklearn.linear_model import Ridge\n\nclass ReferenceRegressor(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        # 时间列表示实际经过的小时；按最后一条合法训练参考截取历史。\n        selected = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[selected], y[selected]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.training_hours_ = X[:, -1].copy()\n        self.columns_ = [4, 6, 7, 8, 0, 1, 2, 3]\n        residual = y - X[:, 4]\n        self.center_ = np.mean(X[:, self.columns_], axis=0)\n        self.scale_ = np.std(X[:, self.columns_], axis=0)\n        self.scale_ = np.where(self.scale_ < 1e-8, 1., self.scale_)\n        self.bias_ = float(np.mean(residual))\n        self.model_ = Ridge(**{'alpha': 8.0, 'copy_X': True, 'fit_intercept': True, 'max_iter': None, 'positive': False, 'random_state': None, 'solver': 'auto', 'tol': 0.0001})\n        self.model_.fit((X[:, self.columns_] - self.center_) / self.scale_, residual)\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        residual = self.model_.predict((X[:, self.columns_] - self.center_) / self.scale_)\n        return np.maximum(0., X[:, 4] + 1.0 * residual)\n\ndef build_model():\n    return ReferenceRegressor()\n",
+          "weight": 0.25,
+          "feedback": {
+            "gain": 0.5,
+            "hours": 6.0
+          }
+        },
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\n\nclass RecentBL0Bias(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        keep = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[keep], y[keep]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.bias_ = float(np.mean(y - X[:, 0]))\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        return np.maximum(0.0, X[:, 0] + 0.5 * self.bias_)\n\ndef build_model():\n    return RecentBL0Bias()\n",
+          "weight": 0.75,
+          "feedback": {
+            "gain": 0.75,
+            "hours": 18.0
+          }
+        }
+      ],
+      "filters": [],
+      "hypothesis": "本批去组件消融与其他站不同：移除第0个Ridge残差组件后RMSE从3.300/0.927降至2.077/0.862；移除第1个偏置组件则升至3.808/0.971，说明第0组件当前混合权重0.75反而拖累，第1组件是有效部分。错例也显示模型低估幅度较大（如BL0=29.3时答案38.4、预测20.10），整体误差均值偏负。围绕消融定位，只把权重从0.75/0.25翻转为0.25/0.75，保留两份源码和其余设定，实测是否能让主导权转给当前更稳的偏置组件。"
+    },
+    "263af49bf83b9d15e426906552ba48378d9c57e4b238e53499e2fce4345408a7": {
+      "components": [
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\nfrom sklearn.linear_model import Ridge\n\nclass ReferenceRegressor(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        # 时间列表示实际经过的小时；按最后一条合法训练参考截取历史。\n        selected = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[selected], y[selected]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.training_hours_ = X[:, -1].copy()\n        self.columns_ = [4, 6, 7, 8, 0, 1, 2, 3]\n        residual = y - X[:, 4]\n        self.center_ = np.mean(X[:, self.columns_], axis=0)\n        self.scale_ = np.std(X[:, self.columns_], axis=0)\n        self.scale_ = np.where(self.scale_ < 1e-8, 1., self.scale_)\n        self.bias_ = float(np.mean(residual))\n        self.model_ = Ridge(**{'alpha': 8.0, 'copy_X': True, 'fit_intercept': True, 'max_iter': None, 'positive': False, 'random_state': None, 'solver': 'auto', 'tol': 0.0001})\n        self.model_.fit((X[:, self.columns_] - self.center_) / self.scale_, residual)\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        residual = self.model_.predict((X[:, self.columns_] - self.center_) / self.scale_)\n        return np.maximum(0., X[:, 4] + 1.0 * residual)\n\ndef build_model():\n    return ReferenceRegressor()\n",
+          "weight": 0.1,
+          "feedback": {
+            "gain": 0.5,
+            "hours": 6.0
+          }
+        },
+        {
+          "python_source": "import numpy as np\nfrom sklearn.base import BaseEstimator, RegressorMixin\n\nclass RecentBL0Bias(BaseEstimator, RegressorMixin):\n    def fit(self, X, y):\n        X = np.asarray(X, dtype=float)\n        y = np.asarray(y, dtype=float)\n        keep = X[:, -1] >= np.max(X[:, -1]) - 24 * 21 + 1\n        X, y = X[keep], y[keep]\n        if len(y) < 12:\n            raise ValueError(\"筛选后训练参考少于12条\")\n        self.bias_ = float(np.mean(y - X[:, 0]))\n        return self\n\n    def predict(self, X):\n        X = np.asarray(X, dtype=float)\n        return np.maximum(0.0, X[:, 0] + 0.5 * self.bias_)\n\ndef build_model():\n    return RecentBL0Bias()\n",
+          "weight": 0.9,
+          "feedback": {
+            "gain": 0.75,
+            "hours": 18.0
+          }
+        }
+      ],
+      "filters": [],
+      "hypothesis": "将权重改为0.25/0.75后，两窗RMSE从3.300/0.927降至2.407/0.872，明显支持提高第1偏置组件权重；但去组件消融显示第1组件单独的2.077/0.862仍优于当前混合。沿已观测到的权重方向将第0组件降至0.10、第1组件升至0.90，保留正权重与原始源码，检验是否可进一步接近第1组件表现，作为本站最后一次试验。"
+    }
+  },
+  "provenance": {
+    "initial_plan": "results\\experiments\\local-defaults\\whole-maintenance\\london-edit-contract\\reference-plan.json",
+    "initial_sha256": "eaa44e37b1bc5542709246ba6d8e367322de83af1b31a1023064e70a9875c837",
+    "plan_library": "results\\experiments\\local-defaults\\whole-maintenance\\london-publication-refit\\plans.json",
+    "library_sha256": "e8353a68e28c108647e53edd271fa216f7ab39376ade30175ec067556ed91d32",
+    "selection_scope": "仅2025已见开发；不含2026答案或评分"
+  }
+}

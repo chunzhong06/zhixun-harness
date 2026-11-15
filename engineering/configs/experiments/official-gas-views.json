@@ -1,0 +1,18 @@
+{
+  "name": "official-gas-views-3",
+  "seed": 17, "rounds": 10, "holdout_fraction": 0.3333333333333333,
+  "max_candidate_epochs": 3, "baseline_tolerance": 0.00000001,
+  "worker_wall_seconds": 30, "worker_cpu_seconds": 20, "worker_memory_bytes": 536870912,
+  "controls_directory": "pilot-1",
+  "controls_sha256": {
+    "fixed": "9de1766d75062f8cfa495730196b110b3a7a1278bef075affe139d0b43ede9ad",
+    "static": "eaebf9f9d2ec220e0c0a6eefd933a9ec16c16a805d3d6eeaeeb12c81b651b71d"
+  },
+  "screen": ["raw-knn", "shape-knn", "raw-lda", "shape-lda", "raw-agree", "shape-agree", "shape-blend"],
+  "arms": ["views"],
+  "hypothesis": "按每次测量、每种响应跨16个传感器中心化并除以均方根，是否使新批气体更接近训练中同类。原始参照使用官方尺度。相对形状可能丢掉有用的幅度。",
+  "mechanisms": "固定5近邻等权投票、共用类内协方差向单位阵收缩20%的等先验LDA、两者同意且五邻中至少四票才覆盖原模型、原模型与形状近邻概率各半。所有训练参考只来自445条官方训练。所有参数在看本轮输出前固定。",
+  "selection": "仅在418条历史探索数据上比较以上固定目录。选择六类Macro-F1最高且超过原版的方案，同分按目录顺序。单项有益时允许优先于组合。无一胜出时拒绝这组改法。另列每类召回、误报、纠正及新增错误。",
+  "replay": "选出的方案作为一次具体维护动作，在十轮中从在用权重测试、按共同采用集择优，并用下一轮尚未参与上轮决定的探索样本评价生效版。公开源批已经用于开发；这一回放不作为前瞻性或跨源批确认。",
+  "endpoints": "复查最终在用模型在原414条开发留出上的Macro-F1、乙醛与乙醇，同时检查直接使用方案与自动采用的差异。记录达到+0.03 Macro-F1的实际量级；这一开发目标不作为统计显著性门槛。"
+}

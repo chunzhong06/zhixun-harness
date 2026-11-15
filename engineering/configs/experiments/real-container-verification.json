@@ -1,0 +1,1 @@
+{"中文名称":"真实Linux容器完整构建与父版交接验收","中文说明":"Docker实际运行，CPU4核内存8G，网络关闭。从官方父版构建完整发动机，再加载第一轮真实产物续训一遍；核对Adam、尺度、附加状态和Windows与Linux预测差异。","实验协议":{"资源":"600秒内CPU验证，无付费调用","输出":"results/engineering/contest-continuation/container-verification","范围":"真实容器能力，不冒充平台隐藏验收；平台另试运行一次。"}}

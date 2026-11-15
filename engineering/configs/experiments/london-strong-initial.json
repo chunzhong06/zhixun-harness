@@ -1,0 +1,20 @@
+{
+  "recipe": {
+    "background": "BQ9",
+    "correction": "network",
+    "days": 180,
+    "strength": 0.75,
+    "where": "all",
+    "limit": 0.0,
+    "features": [],
+    "learner": "Ridge",
+    "parameters": []
+  },
+  "feedback": {
+    "gain": 0.5,
+    "hours": 2.0
+  },
+  "来源": "results/experiments/local-defaults/whole-maintenance/london-learner-equivalence/scores.json",
+  "原比较配方": "direct-142-g0.5-h2",
+  "原五站误差": 4.120728710088974
+}

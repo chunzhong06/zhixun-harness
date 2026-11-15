@@ -1,0 +1,13 @@
+{
+  "frozen": "engineering/configs/experiments/gas-frozen-future.json",
+  "development": "results/experiments/official-gas/pilot-8/development.json",
+  "previous_candidate": "results/experiments/official-gas/pilot-9/matched-rows.json",
+  "diagnostic_reference": "results/experiments/official-gas/pilot-7/predictions.jsonl",
+  "classes": {"target":4, "ethanol":1, "toluene":6, "ethylene":2},
+  "rule": "沿用已发布的整段相对响应表示与445条训练参照。对原模型报乙醇的测量，记录最近的乙醛、乙醇、甲苯训练行与平方欧氏距离。候选只在乙醛距离严格小于另外两类时改报乙醛，否则沿用整段法的输出。每类内部同距按训练行原序，对照开始后不调整阈值。",
+  "arms": "whole为现行整段；direct允许三类比较改写原判乙醇的行；protected只改仍被现行整段判为乙醇的行，现行已找回的乙烯保留。参照及所有统计在相同特征、权重和样本上配对。",
+  "selection": "只用官方第2采集批。沿用414条主比较和同源其余830条。开发候选须在主比较增加乙醛正确数和六类Macro-F1，其余830行两项均不倒退；两部分均无新增乙醇或甲苯由对变错、无已找回乙烯损失。两种候选若成绩相同优先作用范围较小的protected。用上轮分阶段候选逐条预测补充比较。记录各类变动、错到错和原误判后找回的乙烯数。",
+  "timing_passes": 12,
+  "timing": "同一CPU单线程、同组414条，预热后轮换配置顺序取中位单条时间，含原版、整段计算及候选额外距离选择，排除写逐条记录。另列正常运行入口。",
+  "diagnosis": "保存开发成绩和选择后才打开已看过的原始采集批9、10。复核原版与整段历史预测，保持规则不变；后续批不用于选择配置或调阈值。"
+}
