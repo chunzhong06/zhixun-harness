@@ -1,42 +1,29 @@
 # 智训引擎 Harness
 
-比赛试运行源码。使用 PyTRiO Qwen/Qwen3.8-27B 驱动真实工业父模型续训，保留权重、Adam与标准化状态；经验证采用候选或保留父版，保存训练和决策记录。已完成本地及Linux容器验证，网站隐藏评测尚未验收。
+本仓库提供校赛提交镜像 `zhixun-harness:sdk-0.2.4-runtime-gzip` 对应的 0.2.4 源码。镜像归档 `harness-runtime-gzip.tar` 为 349,112,832 字节（332.94 MiB），SHA-256 为 `3b3b299e6006b5d86439969674a11a9c511ab7bf5f461432cada4d2fec168052`。
 
-## 构建
+## 运行入口
 
-```sh
-python engineering/cli/release/prepare_contest_wheels.py
-docker build --platform linux/amd64 -f engineering/configs/container/Dockerfile.contest -t zhixun-harness:trial .
-docker save -o harness.tar zhixun-harness:trial
-```
-
-依赖从PyPI和PyTorch官方CPU源下载，按固定SHA256核对。源码和镜像不含数据集、权重、凭据。
-
-## 单轮训练
+在已加载的提交镜像上执行以下命令可以查看 SDK 声明。
 
 ```sh
-docker run --rm -e PYTRIO_API_KEY -v /your/input:/input:ro -v /your/output:/output zhixun-harness:trial --profile C --train /input/train.jsonl --validation /input/validation.jsonl --from-baseline /input/checkpoint.npz --output /output/round-1 --stage-id round-1
+docker run --rm --network none zhixun-harness:sdk-0.2.4-runtime-gzip describe
 ```
 
-后续轮次使用 --resume 指定上一轮实际采用的检查点。命令参数沿官方原包；实际平台挂载和调用方式由试运行反馈核实。每轮最多一次模型请求、预留0.25元；按三任务各10轮，一次试运行最多预留7.5元调用费用，实际扣费以服务账单为准。
+镜像使用 `contest_harness 1.0.2` 和 `contest.harness.workspace.v2`。平台调用 `python3 /app/harness.py train` 进入训练流程，调用 `python3 /app/harness.py predict` 进行预测。队伍选用 PyTRiO 的 `Qwen/Qwen3.8-27B`，由宿主网关处理调用与认证。
 
-## 独立预测
+| 路径 | 对应内容 |
+| --- | --- |
+| [harness.py](harness.py)、[contest_submission.py](contest_submission.py) | 官方 SDK 入口与本项目声明的训练、预测函数 |
+| [src/harness](src/harness)、[baselines](baselines) | 任务适配、父模型续训、候选比较、预测与兼容入口 |
+| [author-runtime](author-runtime) | 镜像内随附的第三方运行源码及许可证 |
+| [assets/tabular-resources.json](assets/tabular-resources.json) | 气体、轴承模型资源的容器路径及摘要 |
+| [release/gzip-runtime](release/gzip-runtime) | 基于已验收前版镜像的精简配方、实际依赖清单和验证记录 |
 
-```sh
-docker run --rm -i -v /your/output/round-1:/model:ro zhixun-harness:trial --predict /model
-```
+模型二进制随赛事镜像交付。资源路径、大小和 SHA-256 见[镜像验证记录](release/gzip-runtime/verification.json)。精简配方使用已在本机加载的前版镜像作为构建输入，正式运行可直接加载队伍提交的 tar。
 
-标准输入为官方JSONL任务及inputs，标准输出为逐条outputs。发布目录自带baselines，仅需NumPy，也可执行 python -m baselines.predict --checkpoint checkpoint.npz。
+## 验证结果
 
-实验记录：https://swanlab.cn/@chunzhong06/zhixun
+同一检查点在精简前后复算全部官方公开验证数据，气体 1,244 条、轴承 1,679 条、发动机 23,049 条，每条预测完全一致。在精简版上另行完成的发动机验收使用 113,089 条官方公开训练数据和 4 次真实 Qwen 调用，公开验证 RMSE 从 52.8686 降至 46.5633。[SwanLab 验收记录](https://swanlab.cn/@chunzhong06/zhixun/runs/2y782a4g)
 
-## 精简上传镜像
-
-原运行源码对应 c9e12916295fa33fb703e026c471ad399a91cec2。精简步骤只去除第三方测试和字节码缓存，保留运行库、头文件与许可证。先按上文构建原镜像，再执行：
-
-```sh
-docker buildx build --pull=false --platform linux/amd64 --provenance=false --build-arg SOURCE_IMAGE=zhixun-harness:trial -f engineering/configs/container/Dockerfile.compact --output type=image,name=zhixun-harness:compact,compression=gzip,compression-level=9,force-compression=true .
-docker save --platform linux/amd64 -o harness-linux-amd64-compact.tar zhixun-harness:compact
-```
-
-实测归档由425.5 MiB降至249.2 MiB。全部保留运行文件哈希相同；三类训练接口、完整发动机两轮续训及独立预测与原镜像一致。接口检查使用明确的模型回复替身，不新增模型服务调用。平台试运行仍需独立验收。
+仓库保留的 `engineering/` 是早期平台试运行版本的工程目录。对应的原版源码和说明见[历史提交 6385f8f](https://github.com/chunzhong06/zhixun-harness/tree/6385f8f4c0c9d71f8c9e0e0605cd24c2bb0150ad)。

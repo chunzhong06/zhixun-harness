@@ -1,0 +1,83 @@
+{
+  "version": "0.2.4",
+  "image": "zhixun-harness:sdk-0.2.4-runtime-gzip",
+  "image_id": "sha256:25de496861e1d9e2d7f4c5a9121ac593be63191eb3fe8d5b58f5b28a8117f36b",
+  "archive": {
+    "name": "harness-runtime-gzip.tar",
+    "sha256": "3b3b299e6006b5d86439969674a11a9c511ab7bf5f461432cada4d2fec168052",
+    "bytes": 349112832,
+    "layer_compression": "gzip"
+  },
+  "verified_app_source_and_config_count": 1457,
+  "binary_resources_in_image": {
+    "assets/source-a.npz": {
+      "bytes": 45276519,
+      "sha256": "bcb03f08fbe82607656b98c9b3ed392be0377cbde97dfd95f6f9e9bc488d0d88"
+    },
+    "assets/source-b.npz": {
+      "bytes": 54289946,
+      "sha256": "dae3cbca3a646eb21949971c530bd0c47ac2f6d57774d8ede1e9eefea58bf9da"
+    },
+    "author-runtime/tabpfn/architectures/shared/tabpfn_col_embedding.pt": {
+      "bytes": 385668,
+      "sha256": "50802de6718984f275ae67b10ecfe93dfeb75e5804bb579294bd77053cb95b32"
+    }
+  },
+  "local_official_data": {
+    "A": {
+      "rows": 1244,
+      "sdk_rows": 3,
+      "metrics": {
+        "macro_f1": 0.9000795760540553,
+        "accuracy": 0.9565916398713826
+      },
+      "checkpoint_sha256": "ee9c7d04b459ca192055a2b854afba7a91ffb2964317348a893f566f4ad0b41c",
+      "max_abs_difference": 0,
+      "prediction_sha256": "498c959125edbeeb6157c0be1396eacde06c460596e468a89756c60f377b2f4b",
+      "sdk_outputs_equal": true
+    },
+    "B": {
+      "rows": 1679,
+      "sdk_rows": 3,
+      "metrics": {
+        "rmse": 451.7210270515118,
+        "mae": 376.02395232905803
+      },
+      "checkpoint_sha256": "8878ae28b39c101e25a364a1637ff3a061f3ccb84371be18980828d01c741254",
+      "max_abs_difference": 0,
+      "prediction_sha256": "3b79ee9e289d38c9230a52af27f6dae4edf29594658883833563b4fa5471a0d8",
+      "sdk_outputs_equal": true
+    },
+    "C": {
+      "rows": 23049,
+      "sdk_rows": 3,
+      "metrics": {
+        "rmse": 46.58596220478435,
+        "mae": 32.05194369909328
+      },
+      "checkpoint_sha256": "0667c849a3a2664c4084bad732e1ca530aa99b00430c32fecbee7c7dcf49033d",
+      "max_abs_difference": 0,
+      "prediction_sha256": "718c25ef2f52cd12350d68567131f438eddc3ca772541aae180f7360f3b267de",
+      "sdk_outputs_equal": true
+    }
+  },
+  "local_qwen_engine": {
+    "status": "passed",
+    "profile": "C",
+    "model": "Qwen/Qwen3.8-27B",
+    "train_rows": 113089,
+    "validation_rows": 23049,
+    "baseline": {
+      "rmse": 52.86857256611151,
+      "mae": 38.89982982666355
+    },
+    "final": {
+      "rmse": 46.563339480800934,
+      "mae": 32.15856370106992
+    },
+    "model_calls": 4,
+    "total_tokens": 92371,
+    "seconds": 290.5415811999992,
+    "cloud_url": "https://swanlab.cn/@chunzhong06/zhixun/runs/2y782a4g"
+  }
+}

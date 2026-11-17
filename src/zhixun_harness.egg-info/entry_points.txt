@@ -1,0 +1,5 @@
+[console_scripts]
+harness-contest = harness.cli.contest:main
+harness-predict = harness.adapters.platforms.baselines.predict:main
+harness-research = harness.cli.research:main
+harness-train = harness.adapters.platforms.platform_train:main

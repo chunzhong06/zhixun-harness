@@ -1,0 +1,13 @@
+{
+  "format": "harness.tabular-resources.v1",
+  "tasks": {
+    "A": {
+      "checkpoint": "results/experiments/domain-transfer-20261117/gas-sinq-resource/classifier-resource.npz",
+      "sha256": "bcb03f08fbe82607656b98c9b3ed392be0377cbde97dfd95f6f9e9bc488d0d88"
+    },
+    "B": {
+      "checkpoint": "results/experiments/domain-transfer-20261117/bearing-tabpfn-sinq/full-qk8/regressor-resource.npz",
+      "sha256": "dae3cbca3a646eb21949971c530bd0c47ac2f6d57774d8ede1e9eefea58bf9da"
+    }
+  }
+}

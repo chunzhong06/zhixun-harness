@@ -1,0 +1,173 @@
+"""一次真实研究轮次；只使用装配层注入的学习、评价和外部服务。"""
+from dataclasses import dataclass
+from hashlib import sha256
+from pathlib import Path
+from typing import Callable
+import json
+import numpy as np
+from harness.engine.research_recovery import file_identity, verify_files
+from harness.adapters.storage.local import atomic_json
+from harness.engine.publication_selection import protect_incumbent, select_public_validation
+
+@dataclass
+class RoundSession:
+    make_executor: Callable
+    make_broker: Callable
+    research: Callable
+    measure: Callable
+    diagnose: Callable
+    predict: Callable
+    save_trace: Callable
+    emit_trace: Callable
+    model_source: str
+    instruction: str
+    history: list
+    capabilities: dict
+    max_epochs: int = 60
+    extra_references: Callable | None = None
+    summarize_research: Callable | None = None
+    starting_reference: Callable | None = None
+
+
+def public_probe_prediction(specification, task_dir, oracle, service_x, indices, current):
+    """只复用平台内部同一公开集的已核预测；真实服务或独立确认继续独立推理。"""
+    if (specification.get('selection_policy') != 'public-validation'
+            or specification.get('service_role') != 'public_validation_probe'
+            or oracle['serve'].get('y') is not None
+            or oracle['serve']['ids'] != oracle['explore']['ids']):
+        return None
+    path = Path(task_dir) / 'evaluation-inputs.npz'
+    if sha256(path.read_bytes()).hexdigest() != specification['inputs_sha256']['evaluation-inputs.npz']:
+        raise ValueError('公开评价输入已变化，不能复用发放探针')
+    with np.load(path, allow_pickle=False) as arrays:
+        if not np.array_equal(service_x, arrays['explore']):
+            return None
+    return current['explore'][indices].copy()
+
+async def run_round(session, *, task, task_dir, specification, output, folder, parent, current,
+                    oracle, references, driver, model, calls, stage, indices, service_x,
+                    baseline_service, resume=False, candidate_cache=True, stage_hook=None):
+    stage_parent_sha = sha256(parent.read_bytes()).hexdigest()
+    policy = specification.get('selection_policy', 'confirmation')
+    if policy not in ('confirmation', 'public-validation'):
+        raise ValueError('未知的发布评价协议')
+    public_selection = policy == 'public-validation'
+    if public_selection and oracle['explore'] != oracle['adopt']:
+        raise ValueError('全公开验证选案需要相同的完整评价身份和答案')
+    diagnostics = session.diagnose(task, oracle['explore']['y'], current['explore'], oracle['explore']['groups'])
+    program_seconds=session.capabilities.get('program_seconds',90)
+    references = dict(references)
+    if session.extra_references is not None:
+        references.update(session.extra_references(diagnostics, session.capabilities))
+    executor = session.make_executor(folder / 'executions', task_dir, parent, oracle, max_epochs=session.max_epochs, timeout=program_seconds, resume=resume,
+                              cache_dir=output / 'candidate-cache' if candidate_cache else None,
+                              cacheable_sources=references.values())
+    executor.seed_parent(current['explore'])
+    original_candidate = executor.records[0]['candidates'][0]
+    reference_candidate = None
+    start = None
+    if session.starting_reference is not None:
+        name = session.starting_reference(task, references, session.capabilities)
+        if name is not None:
+            if name not in references:
+                raise ValueError('实际起点必须来自本轮冻结参考库')
+            executor.run_reference(references[name], folder, 'starting-reference.py', program_seconds)
+            record = executor.records[-1]
+            if record['returncode'] == 0 and record['candidates']:
+                reference_candidate = min(record['candidates'], key=lambda c: c['score'])
+            start = {'name': name, 'execution': record['sequence'], 'returncode': record['returncode'],
+                     'candidate': reference_candidate, 'source_sha256': record['source_sha256']}
+    broker = session.make_broker(folder, calls)
+    description = {'task': task, 'stage': stage + 1, 'parent_sha256': sha256(parent.read_bytes()).hexdigest(),
+        'training_rows': specification['train_rows'], 'max_training_epochs': session.max_epochs, 'training_capabilities': session.capabilities,
+        'objective': ('保持真实续训与可独立交付，降低全部公开验证损失；验证标签不进入训练，隐藏答案不可见'
+                      if public_selection else '保持真实续训与可独立交付，降低合法探索损失；最后确认和服务答案不返回'),
+        'selection_policy': policy,
+        'data_identity':specification.get('data_identity'),
+        'parent_handoff':specification.get('parent_handoff'),
+        'evaluation_rows':len(oracle['explore']['y']),
+        'history_score_scope':'历轮分数只有在评价数据身份相同时可直接比较；本轮父候选都重新用本轮评价资料评分。',
+        'classification': task == 'gas', 'parent_exploration': session.measure(task, oracle['explore']['y'], current['explore']),
+        'parent_exploration_diagnostics': diagnostics,
+        'baseline_model_source': (task_dir / 'baseline-model.py').read_text(encoding='utf-8'),
+        'complete_model_source': session.model_source,
+        'previous_decisions': session.history,
+        'starting_reference': start,
+        'publication_policy': ('固定参考已实际执行。研究结束后宿主按全部公开验证主指标从所有真实成功候选和父版中选优，平分保持。模型提名单独记录；没有额外独立确认门槛。'
+            if public_selection else '固定参考已实际执行。研究结束后先确认参考，再判断提名相对已保留版本的增量；确认和服务结果不回传。较差提名或研究失败不撤销有效参考收益。'),
+        'repeated_reference_policy': '相同父版与资料上的已登记确定性参考程序会复用原候选，明确不计作新训练；自由源码仍执行。',
+        'reference_sources': references}
+    error = None
+    try:
+        selected = await session.research(description, task_dir, folder / 'workspace', executor, broker,
+            instruction=session.instruction, reference_sources=references, resume=resume, copy_inputs=False,
+            program_seconds=program_seconds)
+        nominated = selected['candidates'][0]
+    except (RuntimeError, ValueError, TimeoutError) as exc:
+        # 保留研究失败事实，仍按事前声明的公开选案或固定确认规则发布。
+        error = {'type': type(exc).__name__, 'message': str(exc)}
+        nominated = None
+    predictions = {stage_parent_sha: (current['explore'], current['adopt'])}
+    def candidate_predictions(candidate):
+        key = candidate['weights_sha256']
+        if key not in predictions:
+            if sha256(Path(candidate['checkpoint']).read_bytes()).hexdigest() != key:
+                raise ValueError('待发布候选权重身份改变')
+            with np.load(Path(candidate['checkpoint']).parent / 'predictions.npz', allow_pickle=False) as arrays:
+                predictions[key] = arrays['explore'].copy(), arrays['confirm'].copy()
+        return predictions[key]
+    if public_selection:
+        pool = [(('reference' if row['actor'] == 'frozen_starting_reference' else 'research'), c)
+                for row in executor.records if row['returncode'] == 0 for c in row['candidates']]
+        candidate, reviews = select_public_validation(original_candidate, pool,
+            validation_loss=lambda c: session.measure(task, oracle['explore']['y'], candidate_predictions(c)[0])['loss'])
+    else:
+        candidate, reviews = protect_incumbent(original_candidate, reference_candidate, nominated,
+            confirmation_loss=lambda c: session.measure(task, oracle['adopt']['y'], candidate_predictions(c)[1])['loss'])
+    selection = {'policy': policy, 'independent_confirmation': not public_selection,
+                 'parent': session.measure(task, oracle['explore']['y'], current['explore']),
+                 'candidate': session.measure(task, oracle['explore']['y'], candidate_predictions(candidate)[0])}
+    accepted = candidate['weights_sha256'] != stage_parent_sha
+    confirmation = None
+    if accepted:
+        new_explore, new_confirm = candidate_predictions(candidate)
+        if not public_selection:
+            confirmation = {'parent': session.measure(task, oracle['adopt']['y'], current['adopt']),
+                            'candidate': session.measure(task, oracle['adopt']['y'], new_confirm)}
+        parent = Path(candidate['checkpoint'])
+        current['explore'], current['adopt'] = new_explore, new_confirm
+    prediction = public_probe_prediction(specification, task_dir, oracle, service_x, indices[stage], current)
+    prediction_source = 'same_public_validation' if prediction is not None else 'independent_prediction'
+    if prediction is None:
+        prediction = session.predict(parent, service_x[indices[stage]], folder)
+    decisions = folder / 'workspace/project-decisions.json'
+    research = (session.summarize_research(executor.records,
+                json.loads(decisions.read_bytes()) if decisions.is_file() else [])
+                if session.summarize_research else None)
+    event = {'stage': stage + 1, 'driver': driver,
+        'model': model if driver == 'service' else ('gpt-6-luna' if driver == 'queue' else 'engineering-fixture'),
+        'selected': candidate, 'accepted': bool(accepted), 'confirmation': confirmation, 'error': error,
+        'nomination': nominated, 'starting_reference': start, 'publication_reviews': reviews, 'selection': selection,
+        'data_identity':specification.get('data_identity'),'evaluation_rows':len(oracle['explore']['y']),
+        'research': research,
+        'prediction_source': prediction_source,
+        'published_checkpoint': str(parent), 'published_sha256': sha256(parent.read_bytes()).hexdigest(),
+        'calls': broker.calls, 'usage': getattr(broker, 'usage', None), 'rows': len(prediction)}
+    np.savez_compressed(folder / 'issued.npz', indices=indices[stage], prediction=prediction)
+    atomic_json(folder / 'decision.json', event)
+    trace = session.save_trace(folder, task=task, parent_sha256=stage_parent_sha, event=event,
+                executions=executor.records, sample_ids=[oracle['serve']['ids'][i] for i in indices[stage]],
+                prediction=prediction, baseline=baseline_service[indices[stage]],
+                service_score=(session.measure(task, np.asarray(oracle['serve']['y'])[indices[stage]], prediction) if oracle['serve']['y'] is not None else None))
+    stage_artifacts = [folder / 'decision.json', folder / 'issued.npz', folder / 'trace.json', parent]
+    if event['accepted']:
+        stage_artifacts.append(parent.parent / 'predictions.npz')
+    atomic_json(folder / 'completed.json', {'parent_sha256': stage_parent_sha,
+                'artifacts': file_identity(stage_artifacts)})
+    if stage_hook is not None:
+        stage_hook(event)
+    session.emit_trace(trace)
+    print(json.dumps({'task': task, 'stage': stage + 1, 'accepted': bool(accepted), 'calls': broker.calls,
+                      'error': error, 'published_sha256': event['published_sha256']}, ensure_ascii=False), flush=True)
+
+    return parent, current, event, prediction
