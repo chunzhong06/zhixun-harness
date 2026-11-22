@@ -187,8 +187,9 @@ class RoundBudget:
             except subprocess.TimeoutExpired as exc:
                 raise CloseResearch('父版准备到达截止时间') from exc
             except subprocess.CalledProcessError as exc:
-                if exc.returncode == 137:
-                    raise CloseResearch('父版准备内存不足被内核终止(137)') from exc
+                # Linux 直接等待子进程得到 -9，经 shell 则为 128+9。退出码本身不说明内存不足。
+                if exc.returncode in (-9, 137):
+                    raise CloseResearch(f'本地父版准备被强制终止，退出码 {exc.returncode}') from exc
                 raise
         oracle = json.loads((work/'oracle.json').read_bytes())
         self.rows = len(oracle['explore']['ids'])
