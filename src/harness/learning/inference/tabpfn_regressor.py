@@ -8,24 +8,27 @@ from hashlib import sha256
 import json
 import os
 from pathlib import Path
+from platform import machine
 from tempfile import TemporaryDirectory
 
 import numpy as np
 
 if __package__:
+    from .frozen_attention import _enable_frozen_cpu_inference
     from .tabular_readout import TabICLReadoutModel
     from .tabpfn_classifier import author_package
-    from .quantized_teacher import restore_teacher, teacher_content_sha256
-    from .teacher_cache import prefetch_teacher
+    from .quantized_teacher import MAX_TEACHER_BYTES, restore_teacher, teacher_content_sha256
+    from .teacher_cache import frozen_regression_values, prefetch_teacher
     try:
         from .complete_checkpoint import FORMAT
     except ImportError:
         from .complete_model import FORMAT
 else:
+    from frozen_attention import _enable_frozen_cpu_inference
     from tabular_readout import TabICLReadoutModel
     from tabpfn_classifier import author_package
-    from quantized_teacher import restore_teacher, teacher_content_sha256
-    from teacher_cache import prefetch_teacher
+    from quantized_teacher import MAX_TEACHER_BYTES, restore_teacher, teacher_content_sha256
+    from teacher_cache import frozen_regression_values, prefetch_teacher
     from complete_model import FORMAT
 
 
@@ -51,7 +54,8 @@ class TabPFNRegressorModel(TabICLReadoutModel):
             raise ValueError('TabPFN回归组件不能剥离或嵌套已有完整父版')
         self.base = base
         self.auxiliary_arrays = {k: v.copy() for k, v in auxiliary_arrays.items()}
-        if set(self.auxiliary_arrays) != {*RESOURCE_FIELDS, 'complete_state'}:
+        expected_fields = {*RESOURCE_FIELDS, 'complete_state'}
+        if set(self.auxiliary_arrays) not in (expected_fields, expected_fields | {'tabm_readout'}):
             raise ValueError('TabPFN回归资源字段不完整或含未知持久状态')
         for name in ('complete_state', 'tabpfn_regressor_state', 'teacher_license'):
             value = self.auxiliary_arrays[name]
@@ -83,7 +87,7 @@ class TabPFNRegressorModel(TabICLReadoutModel):
                 or teacher.get('source_y_sha256') != _array_sha256(y)):
             raise ValueError('冻结回归源上下文摘要不符')
         payload = self.auxiliary_arrays['teacher_asset']
-        if (payload.dtype != np.uint8 or payload.ndim != 1 or not 0 < len(payload) <= 54 * 1024**2
+        if (payload.dtype != np.uint8 or payload.ndim != 1 or not 0 < len(payload) <= MAX_TEACHER_BYTES
                 or sha256(payload.tobytes()).hexdigest() != teacher.get('asset_sha256')):
             raise ValueError('冻结回归教师压缩资产身份不符')
         if not str(self.auxiliary_arrays['teacher_license']).strip():
@@ -97,6 +101,35 @@ class TabPFNRegressorModel(TabICLReadoutModel):
         self._teacher = None
         self._training_teacher = {}
         self._prediction_cache = {}
+        self._tabm = None
+        self._tabm_training = {}
+        self._support_bounds = None
+        self._head_limit = None
+        self._training_spread = {}
+        self._health_cap = None
+        self._grid_readout = None
+        if 'bearing_grid_readout' in self.state:
+            self.load_grid_readout(self.state['bearing_grid_readout'])
+        spec = self.state.get('tabm_readout')
+        if (spec is None) != ('tabm_readout' not in self.auxiliary_arrays):
+            raise ValueError('TabM 组合描述与权重不对应')
+        if spec is not None:
+            payload = self.auxiliary_arrays['tabm_readout']
+            if spec['weight'] != .5 or _array_sha256(payload) != spec['sha256']:
+                raise ValueError('TabM 组合身份与检查点不符')
+            if __package__:
+                from .tabm_readout import TabMReadout
+            else:
+                from tabm_readout import TabMReadout
+            self._tabm = TabMReadout(payload, len(base.meta['paths']))
+            if 'source_support' in spec:
+                self._load_support(spec['source_support'])
+            if 'head_support' in spec:
+                self._load_head_support(spec['head_support'])
+            if 'health_cap' in spec:
+                self.load_health_cap(spec['health_cap'])
+        self._round_cache = None
+        self.round_cache_hits = {'training': 0, 'evaluation': 0}
         self.validate()
 
     def validate(self):
@@ -110,7 +143,7 @@ class TabPFNRegressorModel(TabICLReadoutModel):
         if self._teacher is not None:
             return
         import torch
-        torch.set_num_threads(1)
+        torch.set_num_threads(2 if os.environ.get('ZHIXUN_SDK_PREDICT_THREADS') == '2' else 1)
         torch.manual_seed(42)
         variables = ('HF_HUB_OFFLINE', 'TABPFN_NO_BROWSER', 'SKB_DATA_DIRECTORY', 'TABPFN_MODEL_CACHE_DIR')
         previous = {name: os.environ.get(name) for name in variables}
@@ -132,6 +165,7 @@ class TabPFNRegressorModel(TabICLReadoutModel):
                 model.fit(x.astype(np.float32), y.copy())
                 if model.n_features_in_ != x.shape[1] or model.n_estimators_ != 8:
                     raise ValueError('作者回归器的实际输入或估计器数不符')
+                _enable_frozen_cpu_inference(model)
             self._teacher = model
         finally:
             for name, value in previous.items():
@@ -146,26 +180,182 @@ class TabPFNRegressorModel(TabICLReadoutModel):
             raise ValueError('TabPFN回归组合输入无效')
         return raw
 
+    def bind_round_cache(self, folder):
+        """仅训练宿主可绑定临时目录；独立预测实例从交付检查点自行推理。"""
+        self._round_cache = folder
+
+    def _teacher_predict(self, rows):
+        self._load_teacher()
+        backend = getattr(self._teacher, '_zhixun_cpu_backend', None)
+        if backend is None:
+            return self._teacher.predict(rows)
+        active = backend.active
+        token = active.set(True)
+        try:
+            return self._teacher.predict(rows)
+        finally:
+            active.reset(token)
+
+    def _prefetch_batch(self, raw, cache, role):
+        if self._round_cache is None:
+            prefetch_teacher(cache, raw, self._teacher_predict, nonnegative=True, batch_size=128)
+            return
+        namespace = '\n'.join(('regression-cpu-v1', role, machine(),
+                               os.environ.get('ZHIXUN_SDK_PREDICT_THREADS', '1'),
+                               str(self.auxiliary_arrays['tabpfn_regressor_state'])))
+        if frozen_regression_values(self._round_cache, namespace, raw, cache, self._teacher_predict,
+                                    training=role == 'training'):
+            self.round_cache_hits[role] += 1
+
     def prepare_training(self, raw):
         """宿主只预计算本轮合法训练行；预测缓存及作者拟合缓存不进入检查点。"""
         raw = self._raw(raw)
-        self._load_teacher()
-        prefetch_teacher(self._training_teacher, raw, self._teacher.predict, nonnegative=True, batch_size=128)
+        self._prefetch_batch(raw, self._training_teacher, 'training')
+        if self._tabm is not None:
+            prefetch_teacher(self._tabm_training, raw, self._tabm.predict, nonnegative=True, batch_size=256)
+        if self._head_limit is not None:
+            self.prepare_head_spread(raw)
+
+    def attach_tabm(self, payload, model, cached, source_rows):
+        if self._tabm is not None:
+            raise ValueError('父产物已经包含 TabM 读出')
+        self._tabm, self._tabm_training = model, cached
+        self.auxiliary_arrays['tabm_readout'] = payload
+        self.state['tabm_readout'] = {'weight':.5, 'sha256':_array_sha256(payload), 'source_rows':source_rows}
+        self.auxiliary_arrays['complete_state'] = np.asarray(json.dumps(self.state,sort_keys=True,separators=(',',':')))
+
+    def _tabm_train_prediction(self, raw):
+        return np.asarray([self._tabm_training[row.tobytes()] for row in np.asarray(raw,dtype=np.float64)])
+
+    def _load_support(self, spec):
+        bounds = np.asarray(spec['bounds'], dtype=np.float32)
+        if (spec.get('format') != 'source-minmax-v1' or type(spec.get('rows')) is not int or spec['rows'] < 1
+                or bounds.shape != (2, len(self.meta['paths'])) or not np.isfinite(bounds).all()
+                or np.any(bounds[0] > bounds[1])):
+            raise ValueError('TabM 源特征范围与实际训练行或输入列不一致')
+        self._support_bounds = bounds
+
+    def add_source_support(self, raw):
+        """只从当前训练投影冻结逐列范围，旧产物与后续接续保留原组合语义。"""
+        if self._tabm is None or self._support_bounds is not None:
+            raise ValueError('源范围只可附加到尚未配置范围的 TabM 回归父产物')
+        x = self._raw(raw).astype(np.float32)
+        spec = {'format': 'source-minmax-v1', 'rows': len(x), 'bounds': [x.min(0).tolist(), x.max(0).tolist()]}
+        self._load_support(spec)
+        self.state['tabm_readout']['source_support'] = spec
+        self.auxiliary_arrays['complete_state'] = np.asarray(json.dumps(self.state, sort_keys=True, separators=(',', ':'), allow_nan=False))
+
+    def prepare_head_spread(self, raw):
+        raw = self._raw(raw)
+        if self._tabm is None or self._support_bounds is None or not len(raw):
+            raise ValueError('多头分歧需要已有源范围的 TabM 父版和合法训练行')
+        _,spread = self._tabm.predict_with_spread(raw)
+        self._training_spread = {row.tobytes():value for row,value in zip(raw,spread,strict=True)}
+        return {'format':'tabm-head-support-v1','rows':len(raw),'max_std':float(spread.max())}
+
+    def _load_head_support(self, spec):
+        limit = spec.get('max_std')
+        if (self._support_bounds is None or spec.get('format')!='tabm-head-support-v1'
+                or type(spec.get('rows')) is not int or spec['rows']<1 or type(limit) not in (int,float)
+                or not np.isfinite(limit) or limit<0):
+            raise ValueError('TabM 源训练头分歧描述无效')
+        self._head_limit = limit
+
+    def add_head_support(self, spec):
+        if self._head_limit is not None:
+            raise ValueError('父版已经包含多头分歧范围')
+        self._load_head_support(spec)
+        self.state['tabm_readout']['head_support'] = spec
+        self.auxiliary_arrays['complete_state'] = np.asarray(json.dumps(self.state,sort_keys=True,separators=(',',':'),allow_nan=False))
+
+    def load_health_cap(self,spec):
+        if __package__:
+            from .bearing_health_readout import BearingHealthReadout
+        else:
+            from bearing_health_readout import BearingHealthReadout
+        self._health_cap=BearingHealthReadout(spec,self.meta['paths'])
+
+    def _tabm_weights(self, raw, spread=None):
+        if self._support_bounds is None:
+            return np.full(len(raw), .5)
+        low, high = self._support_bounds
+        varying = low < high
+        x = np.asarray(raw, dtype=np.float32)[:, varying]
+        inside = varying.any() & ((low[varying] <= x) & (x <= high[varying])).all(axis=1)
+        if self._head_limit is not None:
+            if spread is None:
+                spread = np.asarray([self._training_spread[row.tobytes()] for row in self._raw(raw)])
+            return np.where(inside,.875,np.where(spread<=self._head_limit,.625,.5))
+        return np.where(inside, .75, .5)
+
+    def load_grid_readout(self, spec):
+        if __package__:
+            from .bearing_grid_readout import GridReadout
+        else:
+            from bearing_grid_readout import GridReadout
+        self._grid_readout = GridReadout(spec,self.meta['paths'])
+
+    def training_before_grid(self, raw):
+        values = super().training_predictions(raw)
+        if self._tabm is None:
+            return values
+        weight = self._tabm_weights(raw)
+        result=(1 - weight)*values + weight*self._tabm_train_prediction(raw)
+        return result if self._health_cap is None else np.minimum(result,self._health_cap.upper(raw))
+
+    def training_predictions(self, raw):
+        values = self.training_before_grid(raw)
+        return values if self._grid_readout is None else self._grid_readout.apply(raw,values)[0]
+
+    def _continuation_before_grid(self, raw, logits):
+        values, derivative = super().continuation_output(raw, logits)
+        if self._tabm is None:
+            return values, derivative
+        scaled = (self._tabm_train_prediction(raw)-self.meta['target_mean']) / self.meta['target_scale']
+        weight = self._tabm_weights(raw)[:, None]
+        result=(1 - weight)*values + weight*scaled[:, None]
+        derivative=(1 - weight)*derivative
+        if self._health_cap is not None:
+            ceiling=(self._health_cap.upper(raw)[:,None]-self.meta['target_mean'])/self.meta['target_scale']
+            derivative=derivative*(result<ceiling)
+            result=np.minimum(result,ceiling)
+        return result,derivative
+
+    def continuation_output(self, raw, logits):
+        values, derivative = self._continuation_before_grid(raw, logits)
+        if self._grid_readout is None:
+            return values, derivative
+        scale, center = self.meta['target_scale'], self.meta['target_mean']
+        minutes = values[:,0]*scale + center
+        calibrated, gradient = self._grid_readout.apply(raw,minutes)
+        return (values + ((calibrated-minutes)/scale)[:,None], derivative*gradient[:,None])
 
     def predict_batch(self, raw):
         """内部评价批量预取同一冻结教师；不在查询之间拟合统计或更新参数。"""
         raw = self._raw(raw)
-        self._load_teacher()
-        prefetch_teacher(self._prediction_cache, raw, self._teacher.predict, nonnegative=True, batch_size=128)
+        self._prefetch_batch(raw, self._prediction_cache, 'evaluation')
         return self.predict(raw)
+
+    def _predict_before_grid(self, raw):
+        raw = self._raw(raw)
+        prefetch_teacher(self._prediction_cache, raw, self._teacher_predict, nonnegative=True, batch_size=1)
+        teacher = np.asarray([self._prediction_cache[row.tobytes()] for row in raw])
+        alpha = self.state['parent_weight']
+        parent = alpha * self.base.predict(raw) + (1 - alpha) * teacher
+        if self._tabm is None:
+            return parent
+        if self._head_limit is None:
+            values,spread = self._tabm.predict(raw),None
+        else:
+            values,spread = self._tabm.predict_with_spread(raw)
+        weight = self._tabm_weights(raw,spread)
+        result=(1 - weight)*parent + weight*values
+        return result if self._health_cap is None else np.minimum(result,self._health_cap.upper(raw))
 
     def predict(self, raw):
         raw = self._raw(raw)
-        self._load_teacher()
-        prefetch_teacher(self._prediction_cache, raw, self._teacher.predict, nonnegative=True, batch_size=1)
-        teacher = np.asarray([self._prediction_cache[row.tobytes()] for row in raw])
-        alpha = self.state['parent_weight']
-        return alpha * self.base.predict(raw) + (1 - alpha) * teacher
+        result = self._predict_before_grid(raw)
+        return result if self._grid_readout is None else self._grid_readout.apply(raw,result)[0]
 
 
 def from_regressor_asset(base, asset_path, *, parent_weight=.25):

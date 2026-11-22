@@ -1,0 +1,13 @@
+*
+!src/
+!src/**
+!baselines/
+!baselines/**
+!assets/
+!assets/tabular-resources.json
+!release/
+!release/training-sources.json
+!release/verify_training_runtime.py
+!pyproject.toml
+!harness.py
+!contest_submission.py

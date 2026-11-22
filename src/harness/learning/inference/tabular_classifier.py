@@ -104,22 +104,31 @@ class TabICLClassifierModel(CompleteModel):
 
     def predict_batch(self, raw):
         """内部完整评价可批量预取教师；公开单行入口仍立即返回一行预测。"""
+        return self.predict(self._prepare_evaluation_batch(raw))
+
+    def _prepare_evaluation_batch(self, raw):
         raw=np.asarray(raw,dtype=np.float64)
         if raw.ndim!=2 or raw.shape[1]!=len(self.meta['paths']) or not np.isfinite(raw).all():
             raise ValueError('分类组合输入无效')
+        self._prefetch_evaluation(raw)
+        return raw
+
+    def _teacher_probabilities(self, rows):
         self._load_teacher()
-        prefetch_teacher(self._prediction_cache,raw,self._teacher.predict_proba,width=len(self.meta['classes']))
-        return self.predict(raw)
+        return self._teacher.predict_proba(rows)
+
+    def _prefetch_evaluation(self, raw):
+        prefetch_teacher(self._prediction_cache,raw,self._teacher_probabilities,width=len(self.meta['classes']))
 
     def predict(self,raw):
-        self._load_teacher();raw=np.asarray(raw,dtype=np.float64)
+        raw=np.asarray(raw,dtype=np.float64)
         if raw.ndim!=2 or raw.shape[1]!=len(self.meta['paths']) or not np.isfinite(raw).all():
             raise ValueError('分类组合输入无效')
         teacher=[]
         for row in raw:
             key=row.tobytes()
             if key not in self._prediction_cache:
-                value=self._teacher.predict_proba(row[None,:].astype(np.float32))[0]
+                value=self._teacher_probabilities(row[None,:].astype(np.float32))[0]
                 if value.shape!=(len(self.meta['classes']),) or not np.isfinite(value).all():
                     raise ValueError('教师分类输出无效')
                 self._prediction_cache[key]=value.copy()

@@ -66,17 +66,43 @@ async def run_round(session, *, task, task_dir, specification, output, folder, p
     original_candidate = executor.records[0]['candidates'][0]
     reference_candidate = None
     start = None
+    deferred = None
+    try_research_first = task == 'gas' and public_selection and specification.get('defer_gas_reference') is True
+    def execute_start(name):
+        executor.run_reference(references[name], folder, 'starting-reference.py', program_seconds)
+        record = executor.records[-1]
+        candidate = None
+        if record['returncode'] == 0 and record['candidates']:
+            candidate = min(record['candidates'], key=lambda c: c['score'])
+        return {'name': name, 'execution': record['sequence'], 'returncode': record['returncode'],
+                'candidate': candidate, 'source_sha256': record['source_sha256']}
+
     if session.starting_reference is not None:
         name = session.starting_reference(task, references, session.capabilities)
         if name is not None:
             if name not in references:
                 raise ValueError('实际起点必须来自本轮冻结参考库')
-            executor.run_reference(references[name], folder, 'starting-reference.py', program_seconds)
-            record = executor.records[-1]
-            if record['returncode'] == 0 and record['candidates']:
-                reference_candidate = min(record['candidates'], key=lambda c: c['score'])
-            start = {'name': name, 'execution': record['sequence'], 'returncode': record['returncode'],
-                     'candidate': reference_candidate, 'source_sha256': record['source_sha256']}
+            prior = session.history[-1].get('reference_observation') if session.history else None
+            if public_selection and isinstance(prior, dict) and prior.get('name') == name:
+                key = executor.reference_key(references[name])
+                if (key and prior.get('key') == key and prior.get('parent_loss') == original_candidate['score']
+                        and isinstance(prior.get('loss'), (float, int)) and np.isfinite(prior['loss'])
+                        and prior['loss'] >= original_candidate['score']):
+                    deferred = prior
+            if deferred or try_research_first:
+                start = {'name': name, 'execution': None, 'candidate': None, 'returncode': None,
+                         'source_sha256': sha256(references[name].encode()).hexdigest(), 'previous_measurement': deferred}
+                if try_research_first:
+                    start['defer_reason'] = 'stable_parent_try_new_experiment_first'
+            else:
+                start = execute_start(name)
+                reference_candidate = start['candidate']
+            alternate = session.capabilities.get('comparison_reference')
+            if public_selection and alternate and alternate != name:
+                executor.run_reference(references[alternate], folder, 'comparison-reference.py', program_seconds)
+                record = executor.records[-1]
+                start['comparison'] = {'name': alternate, 'execution': record['sequence'],
+                                       'returncode': record['returncode'], 'source_sha256': record['source_sha256']}
     broker = session.make_broker(folder, calls)
     description = {'task': task, 'stage': stage + 1, 'parent_sha256': sha256(parent.read_bytes()).hexdigest(),
         'training_rows': specification['train_rows'], 'max_training_epochs': session.max_epochs, 'training_capabilities': session.capabilities,
@@ -93,20 +119,41 @@ async def run_round(session, *, task, task_dir, specification, output, folder, p
         'complete_model_source': session.model_source,
         'previous_decisions': session.history,
         'starting_reference': start,
-        'publication_policy': ('固定参考已实际执行。研究结束后宿主按全部公开验证主指标从所有真实成功候选和父版中选优，平分保持。模型提名单独记录；没有额外独立确认门槛。'
+        'publication_policy': ('宿主按全部公开验证主指标从本轮真实成功候选和父版中选优，平分保持。若起点带previous_measurement，相同条件的上轮实测已落后或持平；可尝试其他改进或显式复测原程序。'
             if public_selection else '固定参考已实际执行。研究结束后先确认参考，再判断提名相对已保留版本的增量；确认和服务结果不回传。较差提名或研究失败不撤销有效参考收益。'),
         'repeated_reference_policy': '相同父版与资料上的已登记确定性参考程序会复用原候选，明确不计作新训练；自由源码仍执行。',
         'reference_sources': references}
     error = None
+    handoff = None
+    research_options = {}
+    if public_selection and specification.get('final_choice_at_host') is True:
+        research_options['final_choice_at_host'] = True
+        description['final_selection'] = '现场程序训练成功且只剩提名名额时，下一次选择在宿主测量后进行；仍有实验名额时可继续研究。'
     try:
         selected = await session.research(description, task_dir, folder / 'workspace', executor, broker,
             instruction=session.instruction, reference_sources=references, resume=resume, copy_inputs=False,
-            program_seconds=program_seconds)
-        nominated = selected['candidates'][0]
+            program_seconds=program_seconds, **research_options)
+        handoff = selected.get('handoff') if research_options else None
+        nominated = None if handoff else selected['candidates'][0]
     except (RuntimeError, ValueError, TimeoutError) as exc:
         # 保留研究失败事实，仍按事前声明的公开选案或固定确认规则发布。
         error = {'type': type(exc).__name__, 'message': str(exc)}
         nominated = None
+    if start and (deferred or try_research_first) and not any(r.get('launched_training_worker') and not r['returncode'] and r['candidates']
+                            for r in executor.records):
+        # 研究直接保父或新试验失败时，本轮仍从真实父模型续训。历史分数从不作为待交付候选。
+        start.update(execute_start(start['name']))
+        start['fallback_reason'] = 'no_successful_new_training'
+    observation = deferred
+    if public_selection and start:
+        for row in executor.records:
+            if (row.get('cache_key') and row['source_sha256'] == start['source_sha256']
+                    and row.get('launched_training_worker') and not row['returncode'] and row['candidates']):
+                result = min(row['candidates'], key=lambda c: c['score'])
+                observation = None
+                if np.isfinite(result['score']) and result['score'] >= original_candidate['score']:
+                    observation = {'name': start['name'], 'key': row['cache_key'], 'parent_loss': original_candidate['score'],
+                                   'loss': result['score'], 'checkpoint_sha256': result['weights_sha256']}
     predictions = {stage_parent_sha: (current['explore'], current['adopt'])}
     def candidate_predictions(candidate):
         key = candidate['weights_sha256']
@@ -147,12 +194,15 @@ async def run_round(session, *, task, task_dir, specification, output, folder, p
     event = {'stage': stage + 1, 'driver': driver,
         'model': model if driver == 'service' else ('gpt-6-luna' if driver == 'queue' else 'engineering-fixture'),
         'selected': candidate, 'accepted': bool(accepted), 'confirmation': confirmation, 'error': error,
-        'nomination': nominated, 'starting_reference': start, 'publication_reviews': reviews, 'selection': selection,
+        'nomination': nominated, 'starting_reference': start, 'reference_observation': observation,
+        'publication_reviews': reviews, 'selection': selection,
         'data_identity':specification.get('data_identity'),'evaluation_rows':len(oracle['explore']['y']),
         'research': research,
         'prediction_source': prediction_source,
         'published_checkpoint': str(parent), 'published_sha256': sha256(parent.read_bytes()).hexdigest(),
         'calls': broker.calls, 'usage': getattr(broker, 'usage', None), 'rows': len(prediction)}
+    if handoff:
+        event['research_handoff'] = handoff
     np.savez_compressed(folder / 'issued.npz', indices=indices[stage], prediction=prediction)
     atomic_json(folder / 'decision.json', event)
     trace = session.save_trace(folder, task=task, parent_sha256=stage_parent_sha, event=event,

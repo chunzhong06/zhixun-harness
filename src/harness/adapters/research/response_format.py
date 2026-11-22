@@ -2,6 +2,18 @@
 import json
 
 
+def unwrap_json_fence(text):
+    """只去掉包住整条回复的 Markdown 围栏，保留正文交给原解析器校验。"""
+    if not isinstance(text, str):
+        raise ValueError('模型回复需要文本')
+    opener, _, rest = text.strip().partition('\n')
+    if opener.rstrip().lower() in ('```json', '```'):
+        body, newline, closer = rest.rpartition('\n')
+        if newline and closer.strip() == '```':
+            return body
+    return text
+
+
 def normalize_action_json(text):
     """仅在文件末尾少一个对象结束括号且补齐后合法时修复。
 

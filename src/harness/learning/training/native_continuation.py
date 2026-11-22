@@ -11,6 +11,8 @@ import time
 
 import numpy as np
 
+from harness.learning.inference.engine_parent_support import group_rows
+
 
 def tensor_identity(model):
     """包含优化器与尺度，不以文件名或自报父引用判断载入状态。"""
@@ -28,10 +30,17 @@ class ContinuationSession:
     Adam更新。支持显式扩展和组件迁移，独立加载器随实际产物一起交付。
     """
 
-    def __init__(self, model, x, y, *, max_epochs=30, groups=None, tabular_resource=None):
-        self._model = model
-        self._x = np.asarray(x, dtype=np.float64)
+    def __init__(self, model, x, y, *, max_epochs=30, groups=None, tabular_resource=None, teacher_cache=None):
+        self._model = getattr(model, 'context_base', getattr(model, 'unaligned_engine', model))
+        self._gas_partial = getattr(model, 'gas_context', None)
+        self._incoming_x = np.asarray(x, dtype=np.float64)
+        self._x = model.engine_alignment.transform(self._incoming_x) if hasattr(model, 'unaligned_engine') else self._incoming_x
         self._y = np.asarray(y)
+        # 数值程序进入受限环境前，从本轮合法标签准备候选上限。程序内只登记数值。
+        self._prepared_life_limit = None
+        if self._model.meta.get('profile') == 'C' and getattr(self._model, 'state', {}).get('residual'):
+            from harness.learning.training.engine_life_limit import source_limit
+            self._prepared_life_limit = source_limit(self._y)
         self._groups = np.asarray(groups).copy() if groups is not None else np.repeat('source', len(self._y))
         if self._groups.shape != (len(self._y),):
             raise ValueError('训练组身份必须逐行对应合法训练资料')
@@ -48,10 +57,13 @@ class ContinuationSession:
         self._expected_auxiliary = {k: v for k, v in self._initial_tensors.items()
                                     if k in getattr(model, 'auxiliary_arrays', {})}
         self._tabular_resource = tabular_resource
+        self._teacher_cache = teacher_cache
         self._prepared_tabular = None
         self._prepared_tabpfn_readout = None
         self._prepared_classifier = None
         if hasattr(model, 'prepare_training'):
+            if self._teacher_cache is not None and hasattr(model, 'bind_round_cache'):
+                model.bind_round_cache(self._teacher_cache)
             model.prepare_training(self._x)
 
     def _prepare_tabular(self):
@@ -111,6 +123,8 @@ class ContinuationSession:
         cx, cy = prepared.auxiliary_arrays['readout_source_x'], prepared.auxiliary_arrays['readout_source_y']
         if any(x.tobytes() + np.float64(y).tobytes() not in source for x, y in zip(cx, cy, strict=True)):
             raise ValueError('TabPFN回归上下文包含本轮未授权的训练行或标签')
+        if self._teacher_cache is not None:
+            prepared.bind_round_cache(self._teacher_cache)
         prepared.prepare_training(self._x)
         self._prepared_tabpfn_readout = prepared
 
@@ -144,38 +158,249 @@ class ContinuationSession:
         self._component_history.append(report)
         return deepcopy(report)
 
-    def _prepare_tabular_classifier(self,backend='tabicl'):
+    def _prepare_tabular_classifier(self,backend='tabicl', *, baseline=False):
         """分类教师只看源上下文；文件和作者推理在数值程序审计边界外预备。"""
         if backend=='tabicl':
             from harness.learning.inference.tabular_classifier import from_classifier_asset
         elif backend=='tabpfn':
-            from harness.learning.inference.tabpfn_classifier import from_classifier_asset
+            from harness.learning.inference.tabpfn_classifier import TabPFNClassifierModel, from_classifier_asset
         else:
             raise ValueError('未知分类教师后端')
-        resource=self._tabular_resource
-        if resource is None or sha256(Path(resource['checkpoint']).read_bytes()).hexdigest()!=resource['sha256']:
-            raise ValueError('分类教师资源缺失或身份改变')
-        prepared=from_classifier_asset(self._model,resource['checkpoint'])
-        source={x.tobytes()+np.float64(y).tobytes() for x,y in zip(self._x,self._y,strict=True)}
-        cx,cy=prepared.auxiliary_arrays['classifier_source_x'],prepared.auxiliary_arrays['classifier_source_y']
-        if any(x.astype(np.float64).tobytes()+np.float64(y).tobytes() not in source for x,y in zip(cx,cy,strict=True)):
-            raise ValueError('分类教师上下文包含未授权训练行')
+        if baseline and backend=='tabpfn' and isinstance(self._model,TabPFNClassifierModel):
+            # 已有原始上下文随实际父产物继承，仅新增的第二组上下文使用本轮训练行。
+            prepared=TabPFNClassifierModel(self._model.base,self._model.auxiliary_arrays)
+        else:
+            resource=self._tabular_resource
+            if resource is None or sha256(Path(resource['checkpoint']).read_bytes()).hexdigest()!=resource['sha256']:
+                raise ValueError('分类教师资源缺失或身份改变')
+            prepared=from_classifier_asset(self._model,resource['checkpoint'])
+            source={x.tobytes()+np.float64(y).tobytes() for x,y in zip(self._x,self._y,strict=True)}
+            cx,cy=prepared.auxiliary_arrays['classifier_source_x'],prepared.auxiliary_arrays['classifier_source_y']
+            if any(x.astype(np.float64).tobytes()+np.float64(y).tobytes() not in source for x,y in zip(cx,cy,strict=True)):
+                raise ValueError('分类教师上下文包含未授权训练行')
+        if baseline:
+            if (backend == 'tabpfn' and not isinstance(self._model,TabPFNClassifierModel)
+                    and prepared.teacher_state.get('context_origin') == 'current_train'):
+                prepared.add_baseline_context(prepared.auxiliary_arrays['classifier_source_x'],
+                                              prepared.auxiliary_arrays['classifier_source_y'])
+            else:
+                prepared.add_baseline_context(self._x,self._y)
         prepared.prepare_training(self._x)
         self._prepared_classifier=prepared
+
+    def _prepare_tabm(self):
+        """宿主仅用当轮训练投影拟合紧凑教师，数值程序拿不到文件或验证数据。"""
+        from harness.learning.inference.tabpfn_regressor import TabPFNRegressorModel
+        from harness.learning.inference.teacher_cache import prefetch_teacher
+        from harness.learning.training.tabm_training import fit_readout
+        if (not isinstance(self._model, TabPFNRegressorModel) or self._model.state.get('tabm_readout')
+                or self._max_epochs < 7):
+            raise ValueError('需要尚未包含 TabM 的完整 TabPFN 回归父版及至少七轮训练预算')
+        payload, fitted = fit_readout(self._x, self._y)
+        cached = {}
+        prefetch_teacher(cached, self._x, fitted.predict, nonnegative=True, batch_size=256)
+        self._prepared_tabm = payload, fitted, cached
+        self._max_epochs -= 6
+
+    def build_tabm_readout(self):
+        """保留完整父版全部分量，引入当轮源读出，下一梯度步作用于组合的误差。"""
+        if not hasattr(self, '_prepared_tabm') or self._history:
+            raise ValueError('TabM 读出须先由宿主拟合，并在首个父梯度步前接入')
+        payload, fitted, cached = self._prepared_tabm
+        del self._prepared_tabm
+        self._model.attach_tabm(payload, fitted, cached, len(self._x))
+        current = tensor_identity(self._model)
+        if any(current[key] != digest for key,digest in self._initial_tensors.items() if key != 'complete_state'):
+            raise ValueError('新增读出时改变了原父版的权重或冻结状态')
+        self._training_origin_tensors = current
+        self._expected_auxiliary = {k:current[k] for k in self._model.auxiliary_arrays}
+        self._component_history.append({'kind':'tabm-readout', 'teacher_epochs':6, 'source_rows':len(self._x),
+                                        'teacher_sha256':self._model.state['tabm_readout']['sha256'],
+                                        'parent_weight':.5, 'training_objective':'complete_prediction'})
+
+    def build_tabm_source_support(self, *, head_spread=False):
+        """在真实父产物首次接续时，用当轮可见特征确定逐行组合的范围。"""
+        model = self._model
+        if self._history or not getattr(model, 'state', {}).get('tabm_readout'):
+            raise ValueError('须在已有 TabM 的回归父产物上、首个梯度步前配置源范围')
+        if type(head_spread) is not bool:
+            raise ValueError('head_spread 须为布尔值')
+        if head_spread:
+            if not hasattr(self,'_prepared_head_support'):
+                raise ValueError('需先有源特征范围，并用本轮训练行估计头间分歧')
+            model.add_head_support(self._prepared_head_support)
+            del self._prepared_head_support
+        else:
+            model.add_source_support(self._x)
+        current = tensor_identity(model)
+        if any(current[k] != v for k, v in self._initial_tensors.items() if k != 'complete_state'):
+            raise ValueError('设置源范围时原父权重、优化器或教师发生改变')
+        self._training_origin_tensors = current
+        self._expected_auxiliary = {k: current[k] for k in model.auxiliary_arrays}
+        details = {'kind':'tabm-source-support','source_rows':len(self._x),'inside_weight':.75,'outside_weight':.5}
+        if head_spread:
+            details.update(kind='tabm-head-support',inside_weight=.875,head_supported_outside_weight=.625,
+                           source_spread_max=model.state['tabm_readout']['head_support']['max_std'])
+        self._component_history.append(details)
+
+    def build_bearing_health_cap(self):
+        """冻结源训练的振动严重度读出，随后只按完整预测更新父网。"""
+        model=self._model
+        readout=getattr(model,'state',{}).get('tabm_readout',{})
+        if (self._history or 'head_support' not in readout or 'health_cap' in readout
+                or not hasattr(self,'_prepared_health_cap')):
+            raise ValueError('需要有多头分歧的轴承父版，并在首个梯度步前接入')
+        spec=self._prepared_health_cap
+        model.load_health_cap(spec)
+        readout['health_cap']=spec
+        model.auxiliary_arrays['complete_state']=np.asarray(json.dumps(model.state,sort_keys=True,separators=(',',':'),allow_nan=False))
+        current=tensor_identity(model)
+        if any(current[k]!=v for k,v in self._initial_tensors.items() if k!='complete_state'):
+            raise ValueError('设置寿命上界时已有父权重、优化器或读出已改变')
+        self._training_origin_tensors=current
+        self._expected_auxiliary={k:current[k] for k in model.auxiliary_arrays}
+        self._component_history.append({'kind':'bearing-energy-impulse-cap','source_rows':spec['rows'],'levels':len(spec['thresholds'])})
+        del self._prepared_health_cap
 
     def build_tabicl_classifier(self,parent_weight=.25):
         """保留父网、Adam和原源修正；可微组合在离散源修正之前。"""
         return self._attach_classifier(parent_weight,'tabicl-classification-parent')
 
+    def build_bearing_grid_readout(self):
+        """登记来自本轮标签的不同谱窗口寿命校准，保留其他窗口和真实父优化器。"""
+        spec = getattr(self,'_prepared_bearing_grid',None)
+        if spec is None:
+            raise ValueError('本轮源标签未覆盖新的可辨功率谱窗口')
+        model = self._model
+        prepared = getattr(self, '_prepared_native_grid_model', None)
+        if prepared is not None:
+            if prepared.base is not model or self._first_step_tensors is None:
+                raise ValueError('请先从传入的原生轴承父模型完成真实梯度续训')
+            self._model = model = prepared
+            del self._prepared_native_grid_model
+        else:
+            model.load_grid_readout(spec)
+            model.state['bearing_grid_readout'] = spec
+            model.auxiliary_arrays['complete_state'] = np.asarray(json.dumps(model.state,sort_keys=True,separators=(',',':'),allow_nan=False))
+        self._expected_auxiliary['complete_state'] = sha256(model.auxiliary_arrays['complete_state'].tobytes()).hexdigest()
+        if self._first_step_tensors is None:
+            self._training_origin_tensors = tensor_identity(model)
+        self._component_history.append({'kind':'bearing-spectrum-grid-ridge','grids':[m['bins'] for m in spec['models']]})
+        del self._prepared_bearing_grid
+        return deepcopy(spec)
+
+    def build_engine_setting_alignment(self):
+        """使用合法源行对照得到的编码；以变换后的真实输入进行之后的父网络梯度训练。"""
+        prepared = getattr(self, '_prepared_engine_alignment', None)
+        if prepared is None or self._history or self._migration:
+            raise ValueError('新工况编码只可从传入父版、在本轮首个梯度之前安装')
+        entries, aligned_rows = prepared
+        self._x = aligned_rows
+        if entries:
+            self._model.meta['engine_input_alignment'] = deepcopy(entries)
+            self._expected_meta['engine_input_alignment'] = deepcopy(entries)
+        else:
+            self._model.meta.pop('engine_input_alignment', None)
+            self._expected_meta.pop('engine_input_alignment', None)
+        self._component_history.append({'kind':'source-engine-setting-alignment', 'mappings':deepcopy(entries)})
+        del self._prepared_engine_alignment
+        return deepcopy(entries)
+
+    def build_gas_partial_context(self, *, view='log', protect_missing=True):
+        """在当前源测量支持范围内更新类别中心，保留真实父网络及以前采用的设备上下文。"""
+        ready = getattr(self, '_prepared_gas_partial', {})
+        key = view, protect_missing
+        if type(protect_missing) is not bool or key not in ready or self._history or self._migration:
+            raise ValueError('气体小样本上下文须由当前合法训练行在首个梯度前建立')
+        spec,self._gas_partial = ready[key]
+        self._model.meta['gas_partial_context'] = deepcopy(spec)
+        self._expected_meta['gas_partial_context'] = deepcopy(spec)
+        latest=spec['banks'][-1]
+        self._component_history.append({'kind':'gas-partial-context','view':view,'protect_missing':protect_missing,
+                                        'rows':len(latest['labels']),'classes':latest['classes'],'source_sha256':latest['source_sha256']})
+        del self._prepared_gas_partial
+        return deepcopy(self._component_history[-1])
+
     def build_tabpfn_classifier(self,parent_weight=.25):
         """算术组合教师与真实父网；梯度经完整组合Jacobian返回父网。"""
         return self._attach_classifier(parent_weight,'tabpfn-classification-parent')
 
-    def _attach_classifier(self,parent_weight,expected_kind):
+    def build_gas_baseline_ensemble(self,parent_weight=None):
+        """接入由本轮合法训练行产生的第二上下文；接续已发布父版时沿用其比例。"""
+        if self._prepared_classifier is None or not self._prepared_classifier.state.get('baseline_context'):
+            raise ValueError('本底上下文尚未由宿主准备')
+        if parent_weight is None:
+            parent_weight=self._prepared_classifier.state['parent_weight']
+        return self._attach_classifier(parent_weight,'tabpfn-classification-parent',baseline=True)
+
+    def build_gas_drift_readout(self):
+        """附加当轮训练出的单向读出，保留原父梯度、教师和此前的源修正。"""
+        payload=getattr(self,'_prepared_drift_readout',None)
+        model=self._model
+        if (payload is None or getattr(model,'state',{}).get('kind')!='tabpfn-classification-parent'
+                or not model.state.get('baseline_context') or model.state.get('drift_readout')):
+            raise ValueError('该父版或本轮训练行不支持新建气体漂移读出')
+        spec,coef=payload
+        model.state['drift_readout']=deepcopy(spec)
+        model.auxiliary_arrays['drift_coefficients']=coef.copy()
+        model.auxiliary_arrays['complete_state']=np.asarray(json.dumps(model.state,sort_keys=True,separators=(',',':'),allow_nan=False))
+        model._check_drift_readout()
+        for key in ('drift_coefficients','complete_state'):
+            self._expected_auxiliary[key]=sha256(model.auxiliary_arrays[key].tobytes()).hexdigest()
+        if self._first_step_tensors is None:
+            self._training_origin_tensors=tensor_identity(model)
+        self._component_history.append({'kind':'gas-drift-readout',**spec})
+        del self._prepared_drift_readout
+        return deepcopy(spec)
+
+    def build_gas_toluene_readout(self):
+        """在现有漂移读出之后复核甲苯，使用当轮训练行单独拟合新的 SVM。"""
+        model = self._model
+        prepared = getattr(self,'_prepared_toluene',None)
+        if (prepared is None or not getattr(model,'state',{}).get('drift_readout')
+                or 'toluene_readout' in model.state):
+            raise ValueError('该父版或当轮训练行不支持添加甲苯 SVM')
+        self._install_gas_readout('toluene_readout','gas-toluene-readout',prepared)
+        del self._prepared_toluene
+
+    def build_gas_kinetic_support(self):
+        """在甲苯复核之后追加乙醇源覆盖判断，全部参数只由本轮训练行计算。"""
+        prepared=getattr(self,'_prepared_gas_kinetics',None)
+        state=getattr(self._model,'state',{})
+        if prepared is None or 'toluene_readout' not in state or 'kinetic_readout' in state:
+            raise ValueError('乙醛源覆盖判断需要具备甲苯读出的完整父版和六类合法训练行')
+        self._install_gas_readout('kinetic_readout','gas-kinetic-support',prepared)
+        del self._prepared_gas_kinetics
+        return deepcopy(prepared[0])
+
+    def _install_gas_readout(self,field,kind,prepared):
+        model=self._model
+        spec,arrays=prepared
+        model.auxiliary_arrays.update(arrays)
+        model.state[field] = spec
+        model.auxiliary_arrays['complete_state'] = np.asarray(json.dumps(model.state,sort_keys=True,separators=(',',':'),allow_nan=False))
+        for key in (*arrays,'complete_state'):
+            self._expected_auxiliary[key] = sha256(model.auxiliary_arrays[key].tobytes()).hexdigest()
+        if self._first_step_tensors is None:
+            self._training_origin_tensors=tensor_identity(model)
+        self._component_history.append({'kind':kind,'source_rows':spec['rows'],'source_x_sha256':spec['source_x_sha256']})
+
+    def build_gas_device_context(self):
+        """从新发放标签建立局部教师；沿用实际父版本已有的量化权重和未覆盖的类别。"""
+        prepared = getattr(self, '_prepared_gas_device', None)
+        if prepared is None:
+            raise ValueError('本轮合法源资料未形成可辨的新设备上下文')
+        self._install_gas_readout('device_context', 'gas-recent-device-tabpfn', prepared)
+        self._model.reset_device_context()
+        del self._prepared_gas_device
+        return deepcopy(prepared[0])
+
+    def _attach_classifier(self,parent_weight,expected_kind,*,baseline=False):
         from harness.learning.inference.tabular_classifier import classification_base
         if self._prepared_classifier is None or self._prepared_classifier.state.get('kind')!=expected_kind:
             raise ValueError('对应分类教师须先由宿主预备')
-        base=classification_base(self._model)
+        inherited=baseline and getattr(self._model,'state',{}).get('kind')==expected_kind
+        base=self._model.base if inherited else classification_base(self._model)
         before=tensor_identity(base)
         metadata_sha=sha256(json.dumps(base.meta,sort_keys=True).encode()).hexdigest()
         old_wrapper=deepcopy(getattr(self._model,'state',None))
@@ -185,6 +410,10 @@ class ContinuationSession:
         model.validate();current=tensor_identity(model)
         if {k:current[k] for k in before}!=before:
             raise ValueError('分类组件改变了父权重、Adam或尺度')
+        if inherited:
+            for key,value in self._model.auxiliary_arrays.items():
+                if key!='complete_state' and not np.array_equal(model.auxiliary_arrays[key],value):
+                    raise ValueError('新增本底上下文改变了父版已存组件')
         self._model=model
         self._expected_auxiliary={k:v for k,v in current.items() if k in model.auxiliary_arrays}
         if self._first_step_tensors is None:self._training_origin_tensors=current
@@ -193,6 +422,8 @@ class ContinuationSession:
             'replaced_wrapper_descriptor':old_wrapper,'teacher_training':'frozen',
             'parent_epochs_before_attachment':len(self._history),'source_context_rows':model.state['source_context_rows'],
             'training_objective':model.state['training_objective']}
+        if baseline:
+            report['baseline_context']=deepcopy(model.state['baseline_context'])
         self._component_history.append(report)
         return deepcopy(report)
 
@@ -227,6 +458,84 @@ class ContinuationSession:
             self._training_origin_tensors = current
         return deepcopy(report)
 
+    def build_engine_life_neighbors(self):
+        """把根据输入父版和当轮源样本冻结的检索组件装入当前候选。"""
+        model=self._model
+        prepared=getattr(self,'_prepared_life_neighbors',None)
+        if prepared is None or getattr(model,'_density',None) is None or 'engine_neighbors' in model.state:
+            raise ValueError('需要已装配条件密度且尚未装配同工况近邻的父版')
+        spec,arrays=prepared
+        model.auxiliary_arrays.update(arrays)
+        model.state['engine_neighbors']=spec
+        model.auxiliary_arrays['complete_state']=np.asarray(json.dumps(model.state,sort_keys=True,separators=(',',':'),allow_nan=False))
+        model.load_life_neighbors()
+        for key in (*arrays,'complete_state'):
+            self._expected_auxiliary[key]=sha256(model.auxiliary_arrays[key].tobytes()).hexdigest()
+        if self._first_step_tensors is None:
+            self._training_origin_tensors=tensor_identity(model)
+        self._component_history.append({'kind':'engine-gradient-neighbors','source_rows':spec['rows'],'source_x_sha256':spec['source_x_sha256']})
+        del self._prepared_life_neighbors
+
+    def set_engine_parent_pullback(self, *, enabled=True):
+        """在本轮已有梯度更新的候选上改变输出修正，同时保留父网参数与优化器。"""
+        model = self._model
+        support = getattr(model,'parent_support',None)
+        if type(enabled) is not bool or support is None or model.meta.get('profile') != 'C' or not self._history:
+            raise ValueError('发动机父网回调需要含原始父网的 C 模型和本轮梯度更新')
+        if support.quarter_pullback == enabled:
+            raise ValueError('发动机父网回调状态没有改变')
+        spec = model.state['engine_parent_support']
+        if enabled:
+            spec['quarter_pullback'] = True
+        else:
+            spec.pop('quarter_pullback')
+        support.quarter_pullback = enabled
+        encoded = json.dumps(model.state,sort_keys=True,separators=(',',':'),allow_nan=False)
+        model.auxiliary_arrays['complete_state'] = np.asarray(encoded)
+        self._expected_auxiliary['complete_state'] = sha256(model.auxiliary_arrays['complete_state'].tobytes()).hexdigest()
+        self._component_history.append({'kind':'engine-parent-quarter-pullback','enabled':enabled})
+
+    def set_engine_life_limit(self, *, enabled=True):
+        """按当轮标签设置或解除上限；同一父版可另行续训并比较不设限的候选。"""
+        model = self._model
+        if type(enabled) is not bool or model.meta.get('profile') != 'C' or not getattr(model, 'state', {}).get('residual'):
+            raise ValueError('寿命上限仅适用于可继续训练的发动机残差父版')
+        limit = self._prepared_life_limit if enabled else None
+        old = model.state.get('engine_life_limit')
+        if (enabled and limit is None) or old == limit:
+            raise ValueError('本轮没有可登记的寿命上限变更')
+        if enabled:
+            model.state['engine_life_limit'] = limit
+        else:
+            del model.state['engine_life_limit']
+        model.auxiliary_arrays['complete_state'] = np.asarray(json.dumps(
+            model.state, sort_keys=True, separators=(',',':'), allow_nan=False))
+        self._expected_auxiliary['complete_state'] = sha256(model.auxiliary_arrays['complete_state'].tobytes()).hexdigest()
+        if self._first_step_tensors is None:
+            self._training_origin_tensors = tensor_identity(model)
+        self._component_history.append({'kind':'source-engine-life-limit', 'rows':len(self._y),
+                                        'previous':old, 'limit':limit})
+
+    def build_engine_condition_density(self):
+        """把源训练联合密度接到完整发动机父版，保留已有父网、残差头及其优化器。"""
+        model=self._model
+        prepared=getattr(self,'_prepared_condition_density',None)
+        if (prepared is None or self._history or not getattr(model,'state',{}).get('residual')
+                or 'engine_condition_density' in model.state or model.meta.get('profile')!='C'):
+            raise ValueError('需要尚未安装条件密度的完整发动机父版，且须在首个梯度步前接入')
+        spec,arrays=prepared
+        model.auxiliary_arrays.update(arrays)
+        model.state['engine_condition_density']=spec
+        model.auxiliary_arrays['complete_state']=np.asarray(json.dumps(model.state,sort_keys=True,separators=(',',':'),allow_nan=False))
+        model.load_condition_density()
+        current=tensor_identity(model)
+        if any(current[k]!=v for k,v in self._initial_tensors.items() if k!='complete_state'):
+            raise ValueError('附加寿命密度时原父权重、优化器或冻结组件发生变化')
+        self._training_origin_tensors=current
+        self._expected_auxiliary={k:current[k] for k in model.auxiliary_arrays}
+        self._component_history.append({'kind':'engine-condition-density','source_rows':spec['rows'],'weight':spec['weight']})
+        del self._prepared_condition_density
+
     def build_regression_components(self, condition_indices, decimals, *, epochs=60, head_epochs=12):
         """源训练工况处理、真实父网络续训和残差训练；只允许从普通父版构建一次。"""
         if self._history or self._migration or hasattr(self._model, 'auxiliary_arrays'):
@@ -237,6 +546,8 @@ class ContinuationSession:
             raise ValueError('完整组件训练轮数超出本次预算')
         from harness.learning.training.complete_training import attach_inputs, attach_residual
         old = self._model.predict(self._x[:128])
+        # 工况变换和梯度步都会改变预测。后备分支保存进入本轮时实际收到的原生网络。
+        incoming = {k:v.copy() for k,v in self._model.params.items()} if self._model.meta.get('profile') == 'C' else None
         self._model = attach_inputs(self._model, self._x, self._groups, condition_indices, decimals)
         current = tensor_identity(self._model)
         retained = {k: current[k] for k in self._initial_tensors}
@@ -249,6 +560,13 @@ class ContinuationSession:
         for _ in range(epochs):
             self.train_epoch()
         self._component_history.append(attach_residual(self._model, self._x, self._y, self._groups, head_epochs))
+        if incoming is not None:
+            model = self._model
+            known = sorted(group_rows(self._x, model.state['condition']))
+            model.state['engine_parent_support'] = {'groups':known, 'calibration':[]}
+            model.auxiliary_arrays.update({'engine_parent_'+k:v for k,v in incoming.items()})
+            model.auxiliary_arrays['complete_state'] = np.asarray(json.dumps(model.state, sort_keys=True, separators=(',',':')))
+            model.load_parent_support()
         self._head_epochs_used += head_epochs
         final = tensor_identity(self._model)
         self._expected_auxiliary = {k: final[k] for k in self._model.auxiliary_arrays}
@@ -292,8 +610,10 @@ class ContinuationSession:
 
     def training_predictions(self):
         if hasattr(self._model, 'training_predictions'):
-            return self._model.training_predictions(self._x).copy()
-        return self._model.predict(self._x).copy()
+            result = self._model.training_predictions(self._x).copy()
+        else:
+            result = self._model.predict(self._x).copy()
+        return self._gas_partial.apply(self._x,result) if self._gas_partial is not None else result
 
     def expand_hidden(self, hidden):
         """在首个梯度前增加隐藏单元；保留原权重和Adam块，新输出连接为零。"""
@@ -357,6 +677,17 @@ class ContinuationSession:
         if weights.shape != self._y.shape or not np.isfinite(weights).all() or (weights < 0).any() or weights.sum() <= 0:
             raise ValueError('样本权重必须对应合法训练行且非负')
         weights = weights / weights.mean()
+        # 接续已交付模型时才建立后备工况的校准；首次建模与本程序之后的梯度步不重复拟合。
+        if not self._history and getattr(model,'parent_support',None) is not None:
+            fitted = model.parent_support.fit_released(self._x,self._y)
+            if fitted:
+                model.state['engine_parent_support']['calibration'] = [
+                    {'key':key,'slope':slope,'offset':offset}
+                    for key,(slope,offset) in sorted(model.parent_support.calibration.items())]
+                model.auxiliary_arrays['complete_state'] = np.asarray(json.dumps(model.state,sort_keys=True,separators=(',',':'),allow_nan=False))
+                digest = sha256(model.auxiliary_arrays['complete_state'].tobytes()).hexdigest()
+                self._expected_auxiliary['complete_state'] = self._training_origin_tensors['complete_state'] = digest
+                self._component_history.append({'kind':'engine-parent-calibration','released_groups':fitted})
         x = model.normalized(self._x)
         regression = model.meta['task'] == 'regression'
         target = ((self._y - model.meta['target_mean']) / model.meta['target_scale']) if regression else self._y
@@ -377,6 +708,8 @@ class ContinuationSession:
             if hasattr(model, 'continuation_output'):
                 # 完整父版的冻结残差头也影响最终误差；梯度穿过该头回到真实父网络。
                 logits, output_derivative = model.continuation_output(self._x[indices], logits)
+            if self._gas_partial is not None:
+                logits, output_derivative = self._gas_partial.continuation(self._x[indices], logits, output_derivative)
             if loss_gradient is not None:
                 losses, delta = loss_gradient(logits.copy(), expected.copy())
                 losses, delta = np.asarray(losses), np.asarray(delta, dtype=np.float64)
@@ -435,6 +768,10 @@ class ContinuationSession:
         current = tensor_identity(self._model)
         if any(current[name] != self._initial_tensors[name] for name in ('mean', 'scale')):
             raise ValueError('续训改变了原标准化状态')
+        if self._model.meta.get('engine_input_alignment') != self._expected_meta.get('engine_input_alignment'):
+            raise ValueError('发动机输入映射发生未登记改变')
+        if self._model.meta.get('gas_partial_context') != self._expected_meta.get('gas_partial_context'):
+            raise ValueError('气体局部分类器发生未登记改变')
         if any(current[name] != expected for name, expected in self._expected_auxiliary.items()):
             raise ValueError('本次父网络续训改变了冻结的输入处理或残差头')
         return {'initial_steps': self._initial_meta['steps'], 'final_steps': self._model.meta['steps'],
@@ -470,6 +807,63 @@ def validate_program(source):
 def run_program(source, session):
     tree = validate_program(source)
     numerical_methods = {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
+    if 'build_gas_partial_context' in numerical_methods:
+        from harness.learning.inference.gas_partial_readout import PartialContext, fit, prepare
+        model=session._model
+        prepared=prepare(model,session._incoming_x,session._y)
+        session._prepared_gas_partial={}
+        if prepared is not None:
+            for view in ('log','shape'):
+                for protect in (True,False):
+                    spec=fit(prepared,view,protect)
+                    if spec is not None:
+                        session._prepared_gas_partial[view,protect]=spec,PartialContext(spec,model)
+    if 'build_engine_setting_alignment' in numerical_methods and session._model.meta.get('profile') == 'C':
+        from harness.learning.inference.engine_setting_alignment import SettingAlignment, fit
+        model = session._model
+        entries = fit(model, session._incoming_x, session._y, model.meta.get('engine_input_alignment', []))
+        if entries is not None:
+            transform = SettingAlignment(model.meta['paths'], entries)
+            session._prepared_engine_alignment = entries, transform.transform(session._incoming_x)
+    if 'build_engine_life_neighbors' in numerical_methods:
+        from harness.learning.inference.engine_neighbors import fit
+        session._prepared_life_neighbors=fit(session._model,session._x,session._y)
+    if 'build_bearing_health_cap' in numerical_methods:
+        from harness.learning.inference.bearing_health_readout import fit
+        session._prepared_health_cap=fit(session._x,session._y,session._model.meta['paths'])
+    if 'build_bearing_grid_readout' in numerical_methods:
+        from harness.learning.inference.bearing_grid_readout import fit
+        model = session._model
+        native = not hasattr(model, 'auxiliary_arrays') and model.meta.get('profile') == 'B'
+        compatible = getattr(model, 'state', {}).get('kind') in ('tabpfn-regression-parent', 'bearing-native-grid-parent')
+        session._prepared_bearing_grid = fit(model, session._x, session._y) if native or compatible else None
+        if native and session._prepared_bearing_grid is not None:
+            from harness.learning.inference.complete_checkpoint import NativeBearingGridModel
+            session._prepared_native_grid_model = NativeBearingGridModel.from_base(model, session._prepared_bearing_grid)
+    if ('build_tabm_source_support' in numerical_methods
+            and getattr(session._model,'_support_bounds',None) is not None
+            and getattr(session._model,'_head_limit',None) is None):
+        session._prepared_head_support=session._model.prepare_head_spread(session._x)
+    if 'build_engine_condition_density' in numerical_methods:
+        from harness.learning.inference.engine_condition_density import fit_readout
+        session._prepared_condition_density=fit_readout(session._x,session._y,session._model.state['condition'])
+    if 'build_gas_toluene_readout' in numerical_methods:
+        from harness.learning.inference.gas_toluene_readout import fit_readout
+        session._prepared_toluene=fit_readout(session._x,session._y,session._model.meta['classes'])
+    if 'build_gas_kinetic_support' in numerical_methods:
+        from harness.learning.inference.gas_kinetic_support import fit
+        session._prepared_gas_kinetics=fit(session._x,session._y,session._model.meta['classes'])
+    if 'build_gas_device_context' in numerical_methods:
+        from harness.learning.inference.gas_device_context import prepare
+        model = session._model
+        session._prepared_gas_device = (prepare(session._x, session._y, model.auxiliary_arrays['classifier_source_x'],
+            model.meta['classes'], model.state.get('device_context'))
+            if getattr(model, 'state', {}).get('kind') == 'tabpfn-classification-parent' else None)
+    if 'build_gas_drift_readout' in numerical_methods:
+        from harness.learning.inference.gas_drift_readout import fit_readout
+        session._prepared_drift_readout=fit_readout(session._x,session._y,session._model.meta['classes'])
+    if 'build_tabm_readout' in numerical_methods:
+        session._prepare_tabm()
     readout_methods = numerical_methods & {'build_tabicl_readout', 'build_tabpfn_readout'}
     if len(readout_methods) > 1:
         raise ValueError('一次训练程序只接入一种回归教师')
@@ -477,11 +871,12 @@ def run_program(source, session):
         session._prepare_tabular()
     if 'build_tabpfn_readout' in readout_methods:
         session._prepare_tabpfn_readout()
-    classifier_methods=numerical_methods & {'build_tabicl_classifier','build_tabpfn_classifier'}
+    classifier_methods=numerical_methods & {'build_tabicl_classifier','build_tabpfn_classifier','build_gas_baseline_ensemble'}
     if len(classifier_methods)>1:
         raise ValueError('一次训练程序只接入一种分类教师')
     if classifier_methods:
-        session._prepare_tabular_classifier('tabpfn' if 'build_tabpfn_classifier' in classifier_methods else 'tabicl')
+        session._prepare_tabular_classifier('tabicl' if 'build_tabicl_classifier' in classifier_methods else 'tabpfn',
+                                            baseline='build_gas_baseline_ensemble' in classifier_methods)
     if numerical_methods & {'build_gas_repair', 'set_gas_policy'}:
         from harness.learning.training import gas_components
     if numerical_methods & {'build_regression_components', 'train_residual'}:
@@ -500,6 +895,8 @@ def run_program(source, session):
     namespace = {'__builtins__': safe, 'np': np, 'math': math}
     # 导入和随机数运行库在安装审计钩子前载入，避免把正常延迟加载误当源码访问。
     np.random.default_rng(0).permutation(2)
+    # NumPy 的 unique 首次检查掩码时会加载 numpy.ma，须在训练程序启动前预热。
+    np.unique(np.asarray([0, 1]))
     active = [True]
     def guard(event, arguments):
         if active[0] and (event == 'open' or event.startswith(('socket.', 'subprocess.')) or event in ('os.system', 'ctypes.dlopen')):

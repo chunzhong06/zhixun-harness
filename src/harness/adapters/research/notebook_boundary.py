@@ -8,7 +8,9 @@ import os
 from pathlib import Path
 import sys
 import threading
-from harness.adapters.research.runtime_resources import install_runtime_assets, guard_asset_mutation
+from harness.adapters.research.runtime_resources import (
+    install_runtime_assets, guard_asset_mutation, guard_directory_read, guard_query_input_mutation, limit_python_paths,
+)
 
 
 def validate_source(source):
@@ -40,8 +42,11 @@ def install(work, source_root, runtime_assets=None):
     from harness.integrations import author_task_runtime
     sys.modules['harness_task'] = author_task_runtime
     work = Path(work).resolve()
+    author_task_runtime.bind_training_access(work / 'input')
+    immutable_input = work / 'input' if author_task_runtime.query_access() is not None else None
     readable = [work, work.parent / 'input', Path(source_root).resolve(),
                 Path(sys.prefix).resolve(), Path(sys.base_prefix).resolve()]
+    limit_python_paths(assets, readable)
     state = {'active': False, 'thread': threading.get_ident()}
     random.seed(42)
     np.random.seed(42)
@@ -50,6 +55,8 @@ def install(work, source_root, runtime_assets=None):
         if not state['active'] or threading.get_ident() != state['thread']:
             return
         guard_asset_mutation(assets, event, args)
+        guard_directory_read(assets, readable, event, args)
+        guard_query_input_mutation(immutable_input, event, args)
         if event == 'open' and args and isinstance(args[0], (str, bytes, os.PathLike)):
             path = Path(os.fsdecode(args[0])).resolve()
             mode = args[1]
@@ -62,8 +69,10 @@ def install(work, source_root, runtime_assets=None):
                 raise PermissionError('禁止读取评价答案或其他运行资料')
         if event.startswith(('socket.', 'subprocess.')) or event in {'os.system', 'os.exec', 'os.posix_spawn', 'os.fork'}:
             raise PermissionError('模型代码不能联网或启动进程')
-        if event in {'os.remove', 'os.rmdir', 'shutil.rmtree', 'os.rename'}:
-            for value in args[:2] if event == 'os.rename' else args[:1]:
+        if event in {'os.remove', 'os.rmdir', 'shutil.rmtree', 'os.rename', 'os.link', 'os.symlink',
+                     'os.mkdir', 'os.chmod', 'os.utime', 'os.truncate'}:
+            # 与普通执行器一致：不能把外层私有内容硬链接进合法输出目录。
+            for value in args[:2] if event in {'os.rename', 'os.link', 'os.symlink'} else args[:1]:
                 if isinstance(value, (str, bytes, os.PathLike)) and not Path(os.fsdecode(value)).resolve().is_relative_to(work):
                     raise PermissionError('模型代码不能改动本次目录外文件')
 

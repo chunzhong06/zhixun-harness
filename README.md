@@ -1,29 +1,40 @@
-# 智训引擎 Harness
+# 智训引擎 0.3.1
 
-本仓库提供校赛提交镜像 `zhixun-harness:sdk-0.2.4-runtime-gzip` 对应的 0.2.4 源码。镜像归档 `harness-runtime-gzip.tar` 为 349,112,832 字节（332.94 MiB），SHA-256 为 `3b3b299e6006b5d86439969674a11a9c511ab7bf5f461432cada4d2fec168052`。
+智训引擎接手每轮发放的工业模型和数据，在 CPU 上续训、比较候选并向比赛宿主交付选中的检查点。A 识别气体类别，B 预测轴承剩余寿命（分钟），C 预测发动机剩余寿命（循环）。宿主的 `train` 和 `predict` 进入同一个 [SDK 实现](src/harness/contest/submission.py)。
 
-## 运行入口
+本版移除了 C 在所有检查点输出后统一施加的 235 循环上限。官方初始权重的全部 23,049 行公开预测与原版逐行一致，其中 480 行高于 235。检查点自己定义的寿命范围仍在模型内处理。三项本地十轮结果、计时范围及镜像标识见[验收记录](release/verification.json)。队伍已知的 62.89 分属于此前在平台评测的 0.2.32。
 
-在已加载的提交镜像上执行以下命令可以查看 SDK 声明。
+## 本地基线
+
+| 任务 | 终选公开指标 | 十轮耗时 | 最差留出阶段相对改善 |
+|---|---:|---:|---:|
+| A | Macro-F1 0.71403 | 3 分 38 秒 | +0.00% |
+| B | RMSE 280.050 分钟 | 33 分 51 秒 | -67.13% |
+| C | RMSE 46.377 循环 | 9 分 14 秒 | +4.02% |
+
+三十个回合合计 46 分 43 秒。含阶段复测和终选全量评分的整场墙钟为 61 分 51 秒。三项使用 4 核 CPU、4 GiB 内存及本地回放网关。
+
+A 的 109 条乙醛全部漏判，其中 108 条被认作乙醇。B 的短上下文模型全公开 RMSE 为 396.19 分钟。保留当前轴承交付模型，关闭短上下文模型直接整体替换的方案。C 的终选整体 RMSE 从 46.541 降到 46.377，最差阶段相对改善从 4.82% 降到 4.02%。
+
+## 从源码运行
+
+需要 Docker BuildKit 和已取得的 0.3.0 比赛镜像归档。父镜像提供官方 SDK 1.0.4、CPU 依赖、离线教师权重和许可文件。它的归档 SHA-256 为 `16057e0f91140acf911b5eef4080dd8d2b4315f2c963c05dd48966126fc1c1fd`。在仓库根目录执行以下命令，第一行路径换为实际位置。
 
 ```sh
-docker run --rm --network none zhixun-harness:sdk-0.2.4-runtime-gzip describe
+docker load -i /path/to/0.3.0/harness.tar
+docker buildx build --network=none --pull=false --provenance=false --load -t zhixun-harness:source-0.3.1 .
+docker run --rm --network none zhixun-harness:source-0.3.1 describe
 ```
 
-镜像使用 `contest_harness 1.0.2` 和 `contest.harness.workspace.v2`。平台调用 `python3 /app/harness.py train` 进入训练流程，调用 `python3 /app/harness.py predict` 进行预测。队伍选用 PyTRiO 的 `Qwen/Qwen3.8-27B`，由宿主网关处理调用与认证。
+构建时使用本次检出的完整业务源码和 [SHA-256 清单](release/training-sources.json)，逐一核对 399 个 Python 模块及安装副本。取得赛方任一任务公开 ZIP 后，可独立调用比赛入口和官方预测器，逐行比较并按官方函数计算指标。以下使用 C 包作例，适用于 POSIX shell，省略 `--samples 256` 即检验全部公开行。
 
-| 路径 | 对应内容 |
-| --- | --- |
-| [harness.py](harness.py)、[contest_submission.py](contest_submission.py) | 官方 SDK 入口与本项目声明的训练、预测函数 |
-| [src/harness](src/harness)、[baselines](baselines) | 任务适配、父模型续训、候选比较、预测与兼容入口 |
-| [author-runtime](author-runtime) | 镜像内随附的第三方运行源码及许可证 |
-| [assets/tabular-resources.json](assets/tabular-resources.json) | 气体、轴承模型资源的容器路径及摘要 |
-| [release/gzip-runtime](release/gzip-runtime) | 基于已验收前版镜像的精简配方、实际依赖清单和验证记录 |
+```sh
+docker run --rm --network none --entrypoint python3 \
+  -v "$PWD/release:/checks:ro" \
+  -v "/path/to/C.zip:/inputs/C.zip:ro" \
+  zhixun-harness:source-0.3.1 -B /checks/verify_public_checkpoint.py /inputs/C.zip --samples 256
+```
 
-模型二进制随赛事镜像交付。资源路径、大小和 SHA-256 见[镜像验证记录](release/gzip-runtime/verification.json)。精简配方使用已在本机加载的前版镜像作为构建输入，正式运行可直接加载队伍提交的 tar。
+已保存逐行预测时，可在 Python 3.11 以上、装有 NumPy 的环境中运行 `python release/score_public.py /path/to/task.zip /path/to/stream-predictions.npz`。程序验证官方包摘要、样本 ID 与顺序、输出形状，直接调用包内评分函数。A 的六列按官方检查点的类别顺序排列；B、C 每行提供一个寿命值。[三项验收条件](release/protocol.json)
 
-## 验证结果
-
-同一检查点在精简前后复算全部官方公开验证数据，气体 1,244 条、轴承 1,679 条、发动机 23,049 条，每条预测完全一致。在精简版上另行完成的发动机验收使用 113,089 条官方公开训练数据和 4 次真实 Qwen 调用，公开验证 RMSE 从 52.8686 降至 46.5633。[SwanLab 验收记录](https://swanlab.cn/@chunzhong06/zhixun/runs/2y782a4g)
-
-仓库保留的 `engineering/` 是早期平台试运行版本的工程目录。对应的原版源码和说明见[历史提交 6385f8f](https://github.com/chunzhong06/zhixun-harness/tree/6385f8f4c0c9d71f8c9e0e0605cd24c2bb0150ad)。
+训练和推理分别位于 [续训实现](src/harness/learning/training) 和 [检查点预测](src/harness/learning/inference)。比赛入口位于仓库根目录。第三方依赖及教师权重的使用条件见[来源与许可](NOTICE.md)。

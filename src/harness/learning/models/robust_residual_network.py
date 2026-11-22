@@ -4,6 +4,24 @@ import torch
 from sklearn.base import BaseEstimator, RegressorMixin
 
 
+def anonymous_source(group):
+    # 兼容旧公开投影及没有显式组身份的训练会话。
+    return group in ("source", "('source', 'source')")
+
+
+def coverage_rows(rows, group, limit):
+    if anonymous_source(group) or len(rows) <= limit:
+        return rows
+    return rows[np.linspace(0, len(rows)-1, limit).astype(int)]
+
+
+def residual_anchors(groups, limit):
+    if not len(groups):
+        return np.empty(0, dtype=int)
+    return np.concatenate([coverage_rows(np.flatnonzero(groups == group), group, limit)
+                           for group in np.unique(groups)])
+
+
 class RobustResidualNetwork(RegressorMixin, BaseEstimator):
     """从合法设备锚点学习父预测残差；预测不读取设备身份或重估训练统计量。"""
 
@@ -31,11 +49,7 @@ class RobustResidualNetwork(RegressorMixin, BaseEstimator):
         groups = np.zeros(len(X), dtype=int) if groups is None else np.asarray(groups)
         if len(groups) != len(X) or len(y) != len(X):
             raise ValueError('训练设备、标签和输入行数不同')
-        keep = []
-        for group in np.unique(groups):
-            rows = np.flatnonzero(groups == group)
-            keep.extend(rows[np.linspace(0, len(rows)-1, min(self.anchors, len(rows))).astype(int)])
-        keep = np.asarray(keep, dtype=int)
+        keep = residual_anchors(groups, self.anchors)
         self.anchors_ = len(keep)
         residual = np.asarray(y, dtype=np.float32)-base
         self.lo_, self.hi_ = np.quantile(residual[keep], [.01, .99])

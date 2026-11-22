@@ -12,18 +12,20 @@ from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
+from harness.paths import PACKAGE_ROOT
 
 from harness.adapters.providers.research_broker import ACTOR
 from harness.learning.models.sparse_reference import correct,setting_of
 from harness.adapters.storage.local import atomic_json
 from harness.adapters.research.runtime_resources import BudgetExhausted, load_runtime_assets
+from harness.adapters.research.author_task_runtime import snapshot_query_inputs, verify_query_inputs
 
 ROOT = __import__("harness.paths", fromlist=["workspace_root"]).workspace_root()
 
 
 class AuthorExecutor:
     def __init__(self,folder,workspace,oracle,*,timeout=90,scorer=None,runtime_assets=None,execution_budget=None,
-                 candidate_feedback=None):
+                 candidate_feedback=None,input_task=None):
         self.folder=Path(folder).resolve();self.workspace=Path(workspace).resolve()
         self.oracle=oracle;self.timeout=timeout;self.records=[];self.phase='exploration'
         self.scorer=scorer;self.diagnostic=False;self.pending_replay=[]
@@ -32,6 +34,88 @@ class AuthorExecutor:
         self.runtime_assets=Path(runtime_assets).resolve() if runtime_assets is not None else None
         self.execution_budget=execution_budget
         self.candidate_feedback=candidate_feedback
+        self.input_binding = None
+        if input_task is None and self.runtime_assets is not None:
+            candidate_task = self.runtime_assets.parent
+            if (candidate_task / 'array-contract.json').exists():
+                input_task = candidate_task
+        if input_task is not None:
+            self.bind_task_inputs(input_task)
+
+    def bind_task_inputs(self, task):
+        """宿主绑定原查询和私有答案的ID对应，不把答案传入生成程序。"""
+        binding = snapshot_query_inputs(task)
+        if binding is None:
+            if self.input_binding is not None:
+                raise ValueError('已绑定的匿名查询契约缺失')
+            return
+        if self.input_binding is not None and binding != self.input_binding:
+            raise ValueError('任务原查询或契约已改变')
+        for prefix, filename in [('validation', 'validation.csv'), ('confirmation', 'test.csv')]:
+            ids = self.oracle.get(prefix + '_ids')
+            if ids is None or np.asarray(ids).astype(str).tolist() != binding['query_ids'][filename]:
+                raise ValueError('宿主答案没有与原匿名查询ID对齐')
+            if len(ids) != len(self.oracle[prefix + '_y']):
+                raise ValueError('宿主答案行数与原查询ID不同')
+        if (binding['confirmation_role'] == 'development_alias'
+                and not np.array_equal(self.oracle['validation_y'], self.oracle['confirmation_y'])):
+            raise ValueError('development_alias不能绑定另一份独立答案')
+        self.input_binding = binding
+
+    def measure_validation(self, prediction):
+        """新Top1契约直接用宿主原答案复算；旧任务继续使用原scorer接口。"""
+        objective = self.input_binding.get('objective') if self.input_binding is not None else None
+        if objective is not None:
+            if objective != {'accuracy_unit': 'fraction', 'loss_definition': '1-accuracy',
+                             'author_score_is_loss': True, 'minimize': True}:
+                raise ValueError('匿名数组任务尚未注册该宿主评价目标')
+            prediction = np.asarray(prediction)
+            truth = np.asarray(self.oracle['validation_y'])
+            if (prediction.shape != truth.shape or not len(truth) or not np.isfinite(prediction).all()):
+                raise ValueError('分类预测行数或数值不符')
+            accuracy = float(np.mean(prediction == truth))
+            return {'accuracy': accuracy, 'accuracy_unit': 'fraction', 'loss': 1.0 - accuracy,
+                    'score': 1.0 - accuracy}
+        return self.scorer(prediction) if self.scorer is not None else None
+
+    def validate_input(self, folder):
+        verify_query_inputs(folder, self.input_binding)
+        if self.input_binding is not None:
+            # 数组和推理父包位于input外的精确只读资源，评分前也复核其原始内容。
+            load_runtime_assets(self.runtime_assets)
+
+    def validate_candidate_query_identity(self, candidate, arrays):
+        if self.input_binding is None:
+            return
+        binding = self.input_binding
+        if (candidate.get('confirmation_role') != binding['confirmation_role']
+                or candidate.get('independent_confirmation_enabled') != binding['independent_confirmation_enabled']
+                or candidate.get('query_input_sha256') != binding['files']):
+            raise ValueError('候选没有绑定原查询内容和确认语义')
+        for array, filename in [('validation_ids', 'validation.csv'), ('confirmation_ids', 'test.csv')]:
+            if array not in arrays or arrays[array].astype(str).tolist() != binding['query_ids'][filename]:
+                raise ValueError('候选预测的匿名查询ID或行序改变')
+        if binding['confirmation_role'] == 'development_alias':
+            for development, confirmation in [('validation', 'confirmation'),
+                                               ('validation_probabilities', 'confirmation_probabilities')]:
+                if ((development in arrays) != (confirmation in arrays)
+                        or (development in arrays and not np.array_equal(arrays[development], arrays[confirmation]))):
+                    raise ValueError('development_alias的确认预测必须复用同一开发预测')
+
+    def validate_record_query_identity(self, record):
+        """共同父版及恢复候选也须对应原查询，不能只因行数相同就接回榜单。"""
+        if self.input_binding is None or record['returncode']:
+            return
+        for candidate in record['candidates']:
+            path = Path(candidate['path'])
+            if sha256(path.with_suffix('.pkl').read_bytes()).hexdigest() != candidate['weights_sha256']:
+                raise ValueError('既有候选权重身份改变')
+            with np.load(path.with_suffix('.npz'), allow_pickle=False) as arrays:
+                self.validate_candidate_query_identity(candidate, arrays)
+                if self.input_binding.get('objective') is not None:
+                    measured = self.measure_validation(arrays['validation'])
+                    if not np.isclose(candidate['score'], measured['loss'], rtol=0, atol=1e-12):
+                        raise ValueError('共同父版或恢复候选的成绩与原查询预测不同')
 
     def add_candidate_feedback(self, path, record):
         """硬预测评分及身份核验后调用宿主钩子；额外反馈不覆盖主分数或身份。
@@ -53,6 +137,9 @@ class AuthorExecutor:
         run_cwd=Path(run_cwd).resolve()
         if not run_cwd.is_relative_to(self.workspace) or Path(py_filepath).name!=py_filepath:
             raise ValueError('作者程序输出目录越界')
+        if self.input_binding is None and (run_cwd/'input/array-contract.json').exists():
+            raise ValueError('匿名数组任务须在开放执行前由宿主绑定原任务')
+        self.validate_input(run_cwd/'input')
         source_path=run_cwd/py_filepath;source_path.write_text(code_text,encoding='utf-8')
         if self.pending_replay:
             previous=self.pending_replay.pop(0)
@@ -64,9 +151,12 @@ class AuthorExecutor:
             return {key:previous[key] for key in ('returncode','stdout','stderr','execution_time')}
         dest=self.folder/f'{len(self.records)+1:04d}';dest.mkdir(parents=True)
         shutil.copytree(run_cwd/'input',dest/'input');script=dest/py_filepath
+        self.validate_input(dest/'input')
         script.write_text(code_text,encoding='utf-8')
         env=os.environ.copy();env.update(PYTHONUTF8='1',PYTHONHASHSEED='42',OMP_NUM_THREADS='1',MKL_NUM_THREADS='1',OPENBLAS_NUM_THREADS='1')
         env['TMP']=env['TEMP']=str(dest/'tmp');(dest/'tmp').mkdir()
+        # 子进程切到隔离目录后，相对的 src 路径会失效。始终使用父进程当前加载的包。
+        env['PYTHONPATH'] = os.pathsep.join(filter(None, (str(PACKAGE_ROOT.parent), env.get('PYTHONPATH'))))
         command=[sys.executable,'-B','-m','harness.cli.execute_author_program','--script',str(script)]
         if self.runtime_assets is not None:command+=['--runtime-assets',str(self.runtime_assets)]
         limit=min(self.timeout,exec_timeout)
@@ -86,6 +176,11 @@ class AuthorExecutor:
         except BudgetExhausted as exc:
             result={'returncode':1,'stdout':'','stderr':str(exc)}
         result['execution_time']=elapsed
+        try:
+            self.validate_input(dest/'input')
+        except (ValueError, OSError) as error:
+            result['returncode'] = 1
+            result['stderr'] += '\n原查询绑定核验：' + str(error)
         candidates=[]
         if result['returncode']==0:
             try:
@@ -94,11 +189,13 @@ class AuthorExecutor:
                     if sha256(weights.read_bytes()).hexdigest()!=record['weights_sha256']:raise ValueError('模型权重身份变化')
                     with np.load(path.with_suffix('.npz'),allow_pickle=False) as z:
                         raw=z['validation'];confirmation=z['confirmation']
+                        self.validate_candidate_query_identity(record, z)
                     if raw.shape!=self.oracle['validation_y'].shape or confirmation.shape!=self.oracle['confirmation_y'].shape:
                         raise ValueError('探索或确认预测行数不符')
                     if not np.isfinite(raw).all() or not np.isfinite(confirmation).all():raise ValueError('存在非有限预测')
-                    if self.scorer:
-                        measured=self.scorer(raw);score=measured['loss'];window_errors=[score]
+                    measured = self.measure_validation(raw)
+                    if measured is not None:
+                        score=measured['loss'];window_errors=[score]
                         record['task_metrics']=measured
                     else:
                         setting=setting_of(record['feedback'])

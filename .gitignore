@@ -1,9 +1,9 @@
-scratch/
-results/
-data/
 __pycache__/
-*.pyc
+*.py[cod]
 .env
-*.npz
-*.pkl
+.env.*
 *.tar
+*.npz
+*.sqlite*
+build/
+dist/

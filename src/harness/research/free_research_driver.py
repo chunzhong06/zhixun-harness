@@ -4,6 +4,7 @@ from hashlib import sha256
 from pathlib import Path
 
 from harness.adapters.providers.research_broker import ACTOR
+from harness.adapters.research.response_format import unwrap_json_fence
 from harness.research.research_ledger import history_entries
 from harness.research.candidate_selection import candidate_id, choose_candidate
 from harness.adapters.storage.local import atomic_json
@@ -39,6 +40,84 @@ def _remaining_calls(broker):
     return broker.max_calls-broker.prior_model_invocations-broker.calls+broker.reused_model_calls
 
 
+def _normalize_model_call(value):
+    """模型和推理配置是协议输入，不从旧驱动默认值或任务名称猜测。"""
+    if (not isinstance(value, dict) or set(value) - {'model', 'reasoning_effort'}
+            or not isinstance(value.get('model'), str) or not value['model'].strip()):
+        raise ValueError('必须显式给出model_call中的模型身份')
+    effort = value.get('reasoning_effort')
+    if effort is not None and (not isinstance(effort, str) or not effort.strip()):
+        raise ValueError('reasoning_effort必须是明确字符串或显式未指定')
+    return {'model': value['model'], **({'reasoning_effort': effort} if effort is not None else {})}
+
+
+def _check_model_call(broker, model_call, *, allow_unspecified=False):
+    """显式配置须可核；旧宿主接口可从真实config取身份，不补造effort。"""
+    seen, identities, current = set(), [], broker
+    services = []
+    while current is not None:
+        if id(current) in seen:
+            raise ValueError('broker包装关系循环')
+        seen.add(id(current))
+        declared = getattr(current, 'model_call', None)
+        if declared is not None:
+            identities.append(_normalize_model_call(declared))
+        configuration = getattr(current, 'config', None)
+        if configuration is not None and getattr(configuration, 'model', None) is not None:
+            identities.append(_normalize_model_call({'model': configuration.model,
+                'reasoning_effort': getattr(configuration, 'reasoning_effort', None)}))
+            services.append(current)
+        current = getattr(current, 'backend', None)
+    if model_call is None:
+        # 未声明身份的旧工程替身仍可工作；请求不写模型名，也不称其为Sol-max。
+        expected = identities[-1] if identities else {}
+    elif model_call == {} and allow_unspecified:
+        expected = {}
+    else:
+        expected = _normalize_model_call(model_call)
+    if not identities:
+        if expected:
+            raise ValueError('broker没有可核对的模型/推理配置，请显式绑定model_call')
+        return expected
+    if any(identity != expected for identity in identities):
+        raise ValueError('请求模型/推理配置与broker实际配置不一致')
+    if expected.get('reasoning_effort') is not None:
+        for service in services:
+            # 只有要求effort的服务才须核最终发送配置；原Qwen/SDK未指定effort保持原样。
+            effective = getattr(service, 'effective_model_call', None)
+            if effective is None or _normalize_model_call(effective) != expected:
+                raise ValueError('服务broker未提供实际发送的effort配置，拒绝伪报同一模型协议')
+    return expected
+
+
+def _bind_model_call(workspace, broker, model_call):
+    expected = _check_model_call(broker, model_call)
+    path = Path(workspace) / 'controller-model-call.json'
+    if path.exists():
+        if json.loads(path.read_bytes()) != expected:
+            raise ValueError('恢复改变模型/推理配置，须使用新的研究身份')
+    else:
+        atomic_json(path, expected)
+    return expected
+
+
+def _check_response_model_call(answer, expected):
+    """broker返回身份回执时也必须一致；未返回时依赖已绑定的broker配置。"""
+    if isinstance(answer, dict) and answer.get('model_call') is not None:
+        if _normalize_model_call(answer['model_call']) != expected:
+            raise ValueError('模型响应身份与冻结配置不一致')
+
+
+def _bind_executor_query_inputs(executor, task):
+    """先从宿主原任务绑定查询，再把可执行目录交给控制器。"""
+    if (Path(task) / 'array-contract.json').exists():
+        if not callable(getattr(executor, 'bind_task_inputs', None)):
+            raise ValueError('匿名数组任务需要宿主查询身份绑定')
+        executor.bind_task_inputs(task)
+        for record in executor.records:
+            executor.validate_record_query_identity(record)
+
+
 def _available_candidates(successful):
     """仅列出能被执行号与候选ID唯一定位的真实产物，不加入参考文字中的结果。"""
     available = []
@@ -57,7 +136,7 @@ def _validate_action(answer, successful, references, *, require_explicit_candida
     def reject_constant(value):
         raise ValueError('JSON不允许非有限常量：' + value)
     try:
-        action = json.loads(answer['text'], parse_constant=reject_constant)
+        action = json.loads(unwrap_json_fence(answer['text']), parse_constant=reject_constant)
     except ValueError as exc:
         if answer.get('finish_reason') == 'length':
             raise InvalidAction('truncated_response',
@@ -101,12 +180,14 @@ def _validate_action(answer, successful, references, *, require_explicit_candida
     return action, None
 
 
-async def run_free_research(task_description,task,workspace,executor,broker,*,instruction=None,reference_sources=None,resume=False,copy_inputs=True,max_consecutive_invalid_actions=3,require_explicit_candidate=True,program_seconds=90):
+async def run_free_research(task_description,task,workspace,executor,broker,*,instruction=None,reference_sources=None,resume=False,copy_inputs=True,max_consecutive_invalid_actions=3,require_explicit_candidate=True,program_seconds=90,model_call=None,final_choice_at_host=False):
     """无效回复只在原预算内回传纠错；历史缺省候选语义须由调用方显式开启。"""
     if type(max_consecutive_invalid_actions) is not int or max_consecutive_invalid_actions < 1:
         raise ValueError('连续无效动作上限必须为正整数')
     if type(require_explicit_candidate) is not bool:
         raise ValueError('require_explicit_candidate必须为布尔值')
+    _bind_executor_query_inputs(executor, task)
+    model_call = _bind_model_call(workspace, broker, model_call)
     work=Path(workspace)/'project';(work/'input').mkdir(parents=True,exist_ok=resume)
     import shutil
     # 原生续训执行器直接绑定宿主task_dir，不读取此副本；十轮运行不必重复复制训练数组。
@@ -159,9 +240,11 @@ async def run_free_research(task_description,task,workspace,executor,broker,*,in
                 'scores':best[r['sequence']]['exploration_rmse']} for r in ranked[:3]],
             'recent_failures':[{'execution':r['sequence'],'source':Path(r['source']).read_text(encoding='utf-8'),'stderr':r['stderr']} for r in executor.records[-3:] if r['returncode']],
             'search_observations':observations}
-        payload={'request':{'model':'gpt-6-luna','config':{'system_instruction':instruction or INSTRUCTION},
+        _check_model_call(broker, model_call, allow_unspecified=True)
+        payload={'request':{**model_call,'config':{'system_instruction':instruction or INSTRUCTION},
             'contents':[{'role':'user','parts':[{'text':json.dumps(context,ensure_ascii=False)}]}]},'search_allowed':False}
         answer=await broker.exchange('model',payload)
+        _check_response_model_call(answer, model_call)
         try:
             action,selection=_validate_action(answer,successful,references,
                                                require_explicit_candidate=require_explicit_candidate)
@@ -187,6 +270,16 @@ async def run_free_research(task_description,task,workspace,executor,broker,*,in
             for query in action['queries']:observations.append({'query':query,'result':await broker.exchange('search',{'query':query,'purpose':'自主项目研究的公开查询'})})
         elif action.get('action') in ('experiment','reference'):
             executor(action['python_source'],work,'candidate.py',program_seconds)
+            # 最后一个名额只允许提名。SDK 接下来仍会登记产物、请求真实模型选案并等待确认。
+            if final_choice_at_host and _remaining_calls(broker) == 1:
+                record = executor.records[-1]
+                if record.get('launched_training_worker') and record['returncode'] == 0 and record['candidates']:
+                    handoff = {'action':'await_platform_selection','execution':record['sequence'],
+                               'hypothesis':action['hypothesis'][:512], 'source_sha256':record['source_sha256'],
+                               'local_validation_loss':min(c['score'] for c in record['candidates'])}
+                    events.append(handoff)
+                    atomic_json(Path(workspace)/'project-decisions.json', events)
+                    return {'handoff':handoff, 'candidates':[]}
         elif action.get('action')=='finish':
             selected,candidate=selection
             # 返回选中的真实权重，不改写完整执行记录中的其他候选。

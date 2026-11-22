@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "zhixun-harness"
-version = "0.2.4"
+version = "0.3.1"
 description = "共享研究、真实续训和比赛交付内核"
 requires-python = ">=3.11"
 dependencies = ["numpy>=2.2,<3"]
@@ -17,7 +17,7 @@ dev = ["pytest>=8"]
 [project.scripts]
 harness-research = "harness.cli.research:main"
 harness-contest = "harness.cli.contest:main"
-harness-train = "harness.adapters.platforms.platform_train:main"
+harness-train = "harness.contest.training:main"
 harness-predict = "harness.adapters.platforms.baselines.predict:main"
 
 [tool.setuptools.packages.find]

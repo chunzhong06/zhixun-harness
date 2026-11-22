@@ -24,11 +24,36 @@ def is_complete(path):
         return 'complete_state' in arrays.files
 
 
+def with_input_alignment(model):
+    if 'engine_input_alignment' not in model.meta or hasattr(model, 'unaligned_engine'):
+        return model
+    if __package__:
+        from .engine_setting_alignment import AlignedEngine
+    else:
+        from engine_setting_alignment import AlignedEngine
+    return AlignedEngine(model)
+
+
+def delivery_model(model):
+    if 'gas_partial_context' in model.meta and not hasattr(model, 'context_base'):
+        if __package__:
+            from .gas_partial_readout import GasContextModel
+        else:
+            from gas_partial_readout import GasContextModel
+        return GasContextModel(model)
+    return with_input_alignment(model)
+
+
 def prediction_sources(package, checkpoint):
     """为实际模型选择加载入口；完整模型的预测代码不依赖研究目录或旧pickle。"""
     files = {'baselines/' + name: package.read('baselines/' + name)
              for name in ('__init__.py', 'model.py', 'data.py', 'predict.py')}
-    if is_complete(checkpoint):
+    with np.load(checkpoint, allow_pickle=False) as arrays:
+        complete = 'complete_state' in arrays.files
+        metadata = json.loads(str(arrays['metadata']))
+        aligned = 'engine_input_alignment' in metadata
+        partial = 'gas_partial_context' in metadata
+    if complete or aligned or partial:
         files['baselines/core_model.py'] = files['baselines/model.py']
         files['baselines/complete_model.py'] = Path(__file__).read_bytes()
         files['baselines/gas_views.py'] = Path(__file__).with_name('gas_views.py').read_bytes()
@@ -43,17 +68,56 @@ def prediction_sources(package, checkpoint):
             "    def load(cls, path):\n"
             "        return load_checkpoint(path, BaseModel)\n").encode('utf-8')
         with np.load(checkpoint, allow_pickle=False) as arrays:
-            kind = json.loads(str(arrays['complete_state'])).get('kind')
+            state = json.loads(str(arrays['complete_state'])) if complete else {}
+            kind = state.get('kind')
+        if aligned:
+            files['baselines/engine_setting_alignment.py'] = Path(__file__).with_name('engine_setting_alignment.py').read_bytes()
+        if partial:
+            for name in ('gas_partial_readout.py','gas_device_context.py'):
+                files['baselines/'+name] = Path(__file__).with_name(name).read_bytes()
+        if 'engine_condition_density' in state:
+            files['baselines/engine_condition_density.py'] = Path(__file__).with_name('engine_condition_density.py').read_bytes()
+        if 'engine_neighbors' in state:
+            files['baselines/engine_neighbors.py'] = Path(__file__).with_name('engine_neighbors.py').read_bytes()
+        if 'bearing_grid_readout' in state:
+            files['baselines/bearing_grid_readout.py'] = Path(__file__).with_name('bearing_grid_readout.py').read_bytes()
+            if any('health_cap' in item for item in state['bearing_grid_readout']['models']):
+                files['baselines/bearing_health_readout.py'] = Path(__file__).with_name('bearing_health_readout.py').read_bytes()
+            if any('terminal' in item for item in state['bearing_grid_readout']['models']):
+                files['baselines/bearing_terminal_readout.py'] = Path(__file__).with_name('bearing_terminal_readout.py').read_bytes()
         if kind in ('tabpfn-classification-parent', 'tabpfn-regression-parent'):
             from .tabpfn_classifier import prediction_dependencies
             for name in ('tabular_readout.py','tabular_classifier.py','tabpfn_classifier.py',
-                         'quantized_teacher.py','probability_mixture.py','teacher_cache.py'):
+                         'quantized_teacher.py','probability_mixture.py','teacher_cache.py','frozen_attention.py'):
                 files['baselines/'+name]=Path(__file__).with_name(name).read_bytes()
+            if kind=='tabpfn-classification-parent':
+                files['baselines/gas_drift_readout.py']=Path(__file__).with_name('gas_drift_readout.py').read_bytes()
+                if 'device_context' in state:
+                    files['baselines/gas_device_context.py'] = Path(__file__).with_name('gas_device_context.py').read_bytes()
+                with np.load(checkpoint,allow_pickle=False) as arrays:
+                    if 'gas_svm_vectors' in arrays.files:
+                        files['baselines/gas_toluene_readout.py']=Path(__file__).with_name('gas_toluene_readout.py').read_bytes()
+                    if 'kinetic_readout' in state:
+                        files['baselines/gas_kinetic_support.py']=Path(__file__).with_name('gas_kinetic_support.py').read_bytes()
             if kind == 'tabpfn-regression-parent':
                 files['baselines/tabpfn_regressor.py'] = Path(__file__).with_name('tabpfn_regressor.py').read_bytes()
+                with np.load(checkpoint, allow_pickle=False) as arrays:
+                    has_tabm = 'tabm_readout' in arrays.files
+                if has_tabm:
+                    from importlib.metadata import distribution
+                    files['baselines/tabm_readout.py'] = Path(__file__).with_name('tabm_readout.py').read_bytes()
+                    if 'health_cap' in state.get('tabm_readout',{}):
+                        files['baselines/bearing_health_readout.py'] = Path(__file__).with_name('bearing_health_readout.py').read_bytes()
+                    for dependency in ('tabm', 'rtdl_num_embeddings'):
+                        dist = distribution(dependency)
+                        for item in dist.files:
+                            if str(item)==dependency+'.py' or 'licenses' in item.parts:
+                                files[str(item).replace('\\','/')] = dist.locate_file(item).read_bytes()
             files.update(prediction_dependencies())
             with np.load(checkpoint,allow_pickle=False) as arrays:
                 files['TabPFN-model-LICENSE']=str(arrays['teacher_license']).encode('utf-8')
+        if 'engine_parent_support' in state:
+            files['baselines/engine_parent_support.py'] = Path(__file__).with_name('engine_parent_support.py').read_bytes()
         if kind in ('tabicl-parent-combination','tabicl-classification-parent'):
             from .tabular_readout import author_package
             files['baselines/tabular_readout.py'] = Path(__file__).with_name('tabular_readout.py').read_bytes()
@@ -87,7 +151,7 @@ def prediction_sources(package, checkpoint):
 def load_checkpoint(path, base_class):
     """原NPZ使用原加载器；扩展NPZ显式恢复全部组件，禁止静默丢弃附加状态。"""
     if not is_complete(path):
-        return base_class.load(path)
+        return delivery_model(base_class.load(path))
     path = Path(path)
     if path.is_symlink() or path.stat().st_size > 64 * 1024**2:
         raise ValueError('完整模型必须是64 MiB以内的普通文件')
@@ -136,9 +200,11 @@ def load_checkpoint(path, base_class):
         else:
             from tabpfn_regressor import TabPFNRegressorModel
         model_class = TabPFNRegressorModel
+    elif state.get('kind') == 'bearing-native-grid-parent':
+        model_class = NativeBearingGridModel
     else:
         model_class = GasVoteModel if state.get('kind') == 'gas-source-vote' else CompleteModel
-    return model_class(base, extra)
+    return delivery_model(model_class(base, extra))
 
 
 class CompleteModel:
@@ -155,7 +221,42 @@ class CompleteModel:
             for key in self._counts:
                 for j in range(len(key)):
                     self._neighbors[j, key[:j] + key[j+1:]].append(key)
+        self._density = None
+        if 'engine_condition_density' in self.state or any(k.startswith('engine_gmr_') for k in self.auxiliary_arrays):
+            self.load_condition_density()
+        self._life_neighbors=None
+        if 'engine_neighbors' in self.state or any(k.startswith('engine_neighbor_') for k in self.auxiliary_arrays):
+            self.load_life_neighbors()
+        self.parent_support = None
+        if 'engine_parent_support' in self.state or any(k.startswith('engine_parent_') for k in self.auxiliary_arrays):
+            self.load_parent_support()
         self.validate()
+
+    def load_parent_support(self):
+        if __package__:
+            from .engine_parent_support import EngineParentSupport
+        else:
+            from engine_parent_support import EngineParentSupport
+        self.parent_support = EngineParentSupport(self.base, self.auxiliary_arrays, self.state)
+
+    def load_life_neighbors(self):
+        if self._density is None:
+            raise ValueError('寿命近邻需要完整的发动机条件密度父版')
+        if __package__:
+            from .engine_neighbors import LifeNeighbors
+        else:
+            from engine_neighbors import LifeNeighbors
+        self._life_neighbors=LifeNeighbors(self.state.get('engine_neighbors'),self.auxiliary_arrays,self.state['condition'])
+
+    def load_condition_density(self):
+        if self.meta.get('profile')!='C' or not self.state.get('residual'):
+            raise ValueError('发动机条件密度需要完整的发动机残差父版')
+        if __package__:
+            from .engine_condition_density import ConditionDensity
+        else:
+            from engine_condition_density import ConditionDensity
+        self._density = ConditionDensity(self.state.get('engine_condition_density'),self.auxiliary_arrays,
+                                         len(self.meta['paths']),self.state['condition'])
 
     @property
     def meta(self): return self.base.meta
@@ -178,6 +279,11 @@ class CompleteModel:
     def validate(self):
         self.base.validate()
         width = len(self.meta['paths'])
+        if 'engine_life_limit' in self.state:
+            limit = self.state['engine_life_limit']
+            if (self.meta.get('profile') != 'C' or not self.state.get('residual')
+                    or type(limit) not in (float,int) or not np.isfinite(limit) or limit <= 0):
+                raise ValueError('发动机寿命上限需要有效的循环数与完整残差父版')
         if self.state['repair']['width'] != width:
             raise ValueError('输入修复维度与父模型不同')
         for name, values in self.auxiliary_arrays.items():
@@ -189,9 +295,15 @@ class CompleteModel:
                 raise ValueError('残差网络输入刻度无效')
 
     def native_features(self, values):
-        x = np.asarray(values, dtype=np.float64).copy()
+        x = np.asarray(values, dtype=np.float64)
         if x.ndim != 2 or x.shape[1] != len(self.meta['paths']) or not np.isfinite(x).all():
             raise ValueError('完整模型输入宽度或数值无效')
+        if getattr(self,'_density',None) is not None:
+            x = self._density.map(x)
+        return self._native_features_mapped(x)
+
+    def _native_features_mapped(self, values):
+        x = values.copy()
         columns = self.state['repair']['columns']
         for row in x:
             key = tuple(row[columns])
@@ -229,13 +341,19 @@ class CompleteModel:
         """返回完整输出的标准化值和对父网络logit的导数，冻结头仍参与反向传播。"""
         if not self.state.get('residual'):
             return logits, np.ones_like(logits)
+        original_raw = raw
         native_value = logits[:, 0] * self.meta['target_scale'] + self.meta['target_mean']
         parent = np.maximum(0., native_value)
         derivative = (native_value > 0).astype(np.float64)
         if self.state.get('residual'):
             state = self.state['residual']
             arrays = self.auxiliary_arrays
-            raw_features = np.column_stack((raw, self.native_features(raw))).astype(np.float32)
+            raw = np.asarray(raw,dtype=np.float64)
+            if raw.shape!=(len(logits),len(self.meta['paths'])) or not np.isfinite(raw).all():
+                raise ValueError('残差模型需要与父预测逐行对应的有限输入')
+            if self._density is not None:
+                raw = self._density.map(raw)
+            raw_features = np.column_stack((raw, self._native_features_mapped(raw))).astype(np.float32)
             parent = parent.astype(np.float32)
             features = np.column_stack((raw_features, parent)) if state['include_parent'] else raw_features
             features = (features - arrays['residual_mean']) / arrays['residual_std']
@@ -250,6 +368,17 @@ class CompleteModel:
             parent = parent + np.clip(residual, state['lo'], state['hi'])
             derivative *= parent > 0
         value = np.maximum(0., parent)
+        if self._density is not None:
+            value,derivative = self._density.mix(raw,value,derivative)
+        if getattr(self,'_life_neighbors',None) is not None:
+            value,derivative = self._life_neighbors.mix(raw,value,derivative)
+        limit = self.state.get('engine_life_limit')
+        if limit is not None:
+            derivative = derivative * (value < limit)
+            value = np.minimum(value, limit)
+        # 源训练支持范围之外仍按该工况自己的后备父版和校准交付。
+        if self.parent_support is not None:
+            value,derivative = self.parent_support.mix(original_raw,value,derivative)
         scaled = (value.astype(np.float64) - self.meta['target_mean']) / self.meta['target_scale']
         return scaled[:, None], derivative[:, None]
 
@@ -272,6 +401,51 @@ class CompleteModel:
                 info = zipfile.ZipInfo(name + '.npy', date_time=(1980, 1, 1, 0, 0, 0))
                 info.external_attr = 0o600 << 16
                 archive.writestr(info, buffer.getvalue())
+
+
+class NativeBearingGridModel(CompleteModel):
+    """原生轴承模型继续保有全部权重与 Adam，仅在已学习的采集口径校准输出。"""
+    def __init__(self, base, auxiliary_arrays):
+        self.base = base
+        self.auxiliary_arrays = dict(auxiliary_arrays)
+        self.state = json.loads(str(auxiliary_arrays['complete_state']))
+        self.validate()
+        self.load_grid_readout(self.state['bearing_grid_readout'])
+
+    def validate(self):
+        self.base.validate()
+        if (self.meta.get('profile') != 'B' or self.meta['task'] != 'regression'
+                or self.state.get('format') != FORMAT or self.state.get('kind') != 'bearing-native-grid-parent'
+                or set(self.auxiliary_arrays) != {'complete_state'}):
+            raise ValueError('原生轴承校准与父模型状态不相容')
+
+    @classmethod
+    def from_base(cls, base, spec):
+        state = {'format': FORMAT, 'kind': 'bearing-native-grid-parent', 'bearing_grid_readout': spec}
+        return cls(base, {'complete_state': np.asarray(json.dumps(state, sort_keys=True, separators=(',', ':'),
+                                                                  allow_nan=False))})
+
+    def load_grid_readout(self, spec):
+        if __package__:
+            from .bearing_grid_readout import GridReadout
+        else:
+            from bearing_grid_readout import GridReadout
+        self._grid_readout = GridReadout(spec, self.meta['paths'])
+
+    def normalized(self, raw):
+        return self.base.normalized(raw)
+
+    def training_before_grid(self, raw):
+        return self.base.predict(raw)
+
+    def predict(self, raw):
+        return self._grid_readout.apply(raw, self.base.predict(raw))[0]
+
+    def continuation_output(self, raw, logits):
+        scale, center = self.meta['target_scale'], self.meta['target_mean']
+        minutes = logits[:, 0] * scale + center
+        fitted, slope = self._grid_readout.apply(raw, minutes, native_logits=True)
+        return logits + ((fitted-minutes)/scale)[:, None], slope[:, None]
 
 
 def migrate_engine(base, repair, condition, center, residual=None, *, provenance):

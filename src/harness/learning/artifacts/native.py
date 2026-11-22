@@ -64,7 +64,7 @@ def export_release(task_dir, parent, destination):
         report['runtime_dependencies']=['Python','NumPy','PyTorch','scikit-learn','SciPy','pandas','pydantic',
             'pydantic-settings','psutil','requests','packaging','filelock','fsspec','PyYAML','typing-extensions']
         report['bundled_dependencies']=['TabPFN 10.0.0','skrub','safetensors','einops','huggingface-hub','tqdm']
-    # 清单本身也计入64 MiB；字节数位数稳定后取得精确总量。
+    # 清单本身也计入512 MiB；字节数位数稳定后取得精确总量。
     for _ in range(5):
         atomic_json(destination / 'manifest.json', report)
         total = sum(p.stat().st_size for p in destination.rglob('*') if p.is_file())
@@ -73,6 +73,6 @@ def export_release(task_dir, parent, destination):
         report['artifact_bytes'] = total
     else:
         raise ValueError('产物大小记录未收敛')
-    if total > 64 * 1024**2:
-        raise ValueError('独立发布产物超过64 MiB')
+    if total > 512 * 1024**2:
+        raise ValueError('独立发布产物超过512 MiB')
     return report

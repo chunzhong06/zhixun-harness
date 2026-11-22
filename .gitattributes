@@ -1,0 +1,11 @@
+# 镜像检查按字节核对源码。混合换行来自归档原件，跨系统检出时保持。
+src/** -text
+baselines/** -text
+assets/** -text
+harness.py -text
+contest_submission.py -text
+pyproject.toml -text
+release/training-sources.json -text
+release/verify_training_runtime.py -text
+*.md text eol=lf
+Dockerfile text eol=lf

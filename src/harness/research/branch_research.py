@@ -7,6 +7,8 @@ from harness.adapters.providers.research_broker import ACTOR
 from harness.adapters.storage.local import atomic_json
 from harness.research.free_research_driver import (
     InvalidAction, ResearchControlError, _remaining_calls, _validate_action,
+    _bind_model_call, _check_model_call, _check_response_model_call,
+    _bind_executor_query_inputs,
     run_free_research as original_free_research,
 )
 from harness.research.research_ledger import history_entries
@@ -51,7 +53,7 @@ def _programs(records):
 
 
 async def run_branch_research(task_description, task, workspace, executor, broker, *, mode,
-                              instruction=None, reference_sources=None, resume=False, **kwargs):
+                              instruction=None, reference_sources=None, resume=False, model_call=None, **kwargs):
     """调用前须已在本臂预算内执行原三个初始化；两个模式共用解析及执行路径。
 
 每个请求都是单条新用户上下文。independent 不携带上一槽或初始化结果，
@@ -59,6 +61,8 @@ async def run_branch_research(task_description, task, workspace, executor, broke
 """
     if mode not in ("shared_proposals", "independent_proposals"):
         raise ValueError("未知提案模式")
+    _bind_executor_query_inputs(executor, task)
+    model_call = _bind_model_call(workspace, broker, model_call)
     if not resume or len(executor.records) != 3 or any(
             record["actor"] != "harness_reference_initialization" for record in executor.records):
         raise ValueError("提案阶段要求原三个初始化记录，不自行补跑或复用旧运行")
@@ -100,10 +104,12 @@ async def run_branch_research(task_description, task, workspace, executor, broke
                 context.update(history=history_entries(executor.records, events),
                                executed_programs=_programs(executor.records),
                                previous_proposals=[event for event in events if event.get("slot", slot) < slot])
-            payload = {"request": {"model": "gpt-6-luna", "config": {"system_instruction": PROPOSAL_INSTRUCTION},
+            _check_model_call(broker, model_call, allow_unspecified=True)
+            payload = {"request": {**model_call, "config": {"system_instruction": PROPOSAL_INSTRUCTION},
                 "contents": [{"role": "user", "parts": [{"text": json.dumps(context, ensure_ascii=False)}]}]},
                 "search_allowed": False}
             answer = await broker.exchange("model", payload)
+            _check_response_model_call(answer, model_call)
             try:
                 action = _proposal(answer)
             except InvalidAction as error:
@@ -137,4 +143,4 @@ async def run_branch_research(task_description, task, workspace, executor, broke
     atomic_json(Path(workspace) / "proposal-stage-complete.json", discovery)
     selector_task = task_description + "\n两个提案槽已结束；下列均为本臂真实记录，可提名任一有效候选或继续原自由研究：\n" + json.dumps(discovery, ensure_ascii=False)
     return await original_free_research(selector_task, task, workspace, executor, broker,
-        instruction=instruction, reference_sources=references, resume=True, **kwargs)
+        instruction=instruction, reference_sources=references, resume=True, model_call=model_call or None, **kwargs)

@@ -8,7 +8,9 @@ import runpy
 import sys
 
 from harness.paths import PACKAGE_ROOT
-from harness.adapters.research.runtime_resources import install_runtime_assets, guard_asset_mutation
+from harness.adapters.research.runtime_resources import (
+    install_runtime_assets, guard_asset_mutation, guard_directory_read, guard_query_input_mutation, limit_python_paths,
+)
 ROOT=PACKAGE_ROOT.parent
 sys.path.insert(0,str(PACKAGE_ROOT.parent))
 
@@ -35,12 +37,16 @@ def main():
     import cloudpickle
     from harness.integrations import author_task_runtime
     author_task_runtime.bind_training_access(work/'input')
+    immutable_input = work/'input' if author_task_runtime.query_access() is not None else None
     # 直接提供固定任务接口；模型代码不能通过项目根目录导入其他研究数据。
     sys.modules['harness_task']=author_task_runtime
     random.seed(42);np.random.seed(42)
     readable=[work,Path(sys.prefix).resolve(),Path(sys.base_prefix).resolve(),PACKAGE_ROOT.parent]
+    limit_python_paths(assets, readable)
     def guard(event,values):
         guard_asset_mutation(assets,event,values)
+        guard_directory_read(assets, readable, event, values)
+        guard_query_input_mutation(immutable_input, event, values)
         if event=='open' and values and isinstance(values[0],(str,bytes,os.PathLike)):
             path=Path(os.fsdecode(values[0])).resolve();mode=values[1];flags=values[2] if len(values)>2 else 0
             writing=(isinstance(mode,str) and any(x in mode for x in 'wax+')) or (isinstance(flags,int) and bool(flags&(os.O_WRONLY|os.O_RDWR|os.O_CREAT|os.O_TRUNC)))
@@ -56,8 +62,10 @@ def main():
                 raise PermissionError('未绑定身份的动态库')
         if event.startswith(('socket.','subprocess.')) or event in {'os.system','os.exec','os.posix_spawn','os.fork'}:
             raise PermissionError('任务程序禁止网络和额外进程：'+event)
-        if event in {'os.remove','os.rmdir','shutil.rmtree','os.rename'}:
-            for value in values[:2] if event=='os.rename' else values[:1]:
+        if event in {'os.remove','os.rmdir','shutil.rmtree','os.rename','os.link','os.symlink',
+                     'os.mkdir','os.chmod','os.utime','os.truncate'}:
+            # 硬链接会保留私有文件内容却改变可见路径，必须同时检查源和目标。
+            for value in values[:2] if event in {'os.rename','os.link','os.symlink'} else values[:1]:
                 if isinstance(value,(str,bytes,os.PathLike)) and not Path(os.fsdecode(value)).resolve().is_relative_to(work):
                     raise PermissionError('任务程序不能改动当前目录外的文件')
     sys.addaudithook(guard)

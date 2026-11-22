@@ -1,5 +1,0 @@
-{
-  "parent": "gas-home-forward.json",
-  "evaluation": "Frozen project decisions already scored. Complete the original H-LLM study_2 classification loop on the same new UCI induction days, source one-tree forest seed 0 and all eligible delayed labels (at most 32 per day). Actual local blind Luna responses, original ten-condition budget, DDM .8/warm_start 3, source column names R1-R8 and a context describing residential stimulus classification. Reuse original filtering, accuracy ranking and caching. Do not change frozen project outputs, driver prompts or service labels in response to scores.",
-  "outputs": "Raw author predictions, same observer with author as current, cost, worst-class recall, fit outcomes. If the upstream winning query cannot be trained or is outside safe grammar, report actual interruption with real prefix of deliveries; no test-guided repair. Separately declare any real author fallback. One row per measured recording, daily feedback after predictions, preserve prompt and response hashes."
-}

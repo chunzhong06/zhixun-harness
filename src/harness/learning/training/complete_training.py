@@ -7,7 +7,7 @@ from sklearn.preprocessing import StandardScaler
 from harness.learning.models.condition_processing import ConditionStandardScaler
 from harness.learning.models.source_combinations import SourceCombinations
 from harness.learning.inference.complete_checkpoint import migrate_engine
-from harness.learning.models.robust_residual_network import RobustResidualNetwork
+from harness.learning.models.robust_residual_network import RobustResidualNetwork, anonymous_source, coverage_rows
 
 
 def prepare_runtime():
@@ -22,20 +22,27 @@ def prepare_runtime():
 
 
 def attach_inputs(base, x, groups, indices, decimals):
-    selected, healthy = [], []
+    selected, reference = [], []
+    anonymous_count = 0
     for group in dict.fromkeys(groups.tolist()):
         rows = np.flatnonzero(groups == group)
-        if len(rows) < 8:
+        missing_device = anonymous_source(group)
+        if not missing_device and len(rows) < 8:
             raise ValueError('每个源设备至少需要8条有序训练记录')
-        healthy.extend(rows[:8])
-        selected.extend(rows[np.linspace(0, len(rows)-1, min(8, len(rows))).astype(int)])
+        # 匿名行的先后没有设备内健康阶段含义，以全源观测估计工况分布。
+        reference.extend(rows if missing_device else rows[:8])
+        if missing_device:
+            anonymous_count += len(rows)
+        selected.extend(coverage_rows(rows, group, 8))
     selected = np.sort(selected)
     repair = SourceCombinations(x[selected])
-    condition = ConditionStandardScaler(tuple(indices), tuple(decimals)).fit(x[healthy])
+    condition = ConditionStandardScaler(tuple(indices), tuple(decimals)).fit(x[reference])
     center = StandardScaler().fit(condition.transform(x[selected]))
-    return migrate_engine(base, repair, condition, center, provenance={
-        'construction': 'actual_parent_and_legal_training_only', 'source_rows': len(x),
-        'anchor_rows': len(selected), 'healthy_rows': len(healthy)})
+    provenance = {'construction': 'actual_parent_and_legal_training_only', 'source_rows': len(x),
+                  'anchor_rows': len(selected), 'healthy_rows': len(reference)-anonymous_count}
+    if anonymous_count:
+        provenance.update(anonymous_source_rows=anonymous_count, condition_reference_rows=len(reference))
+    return migrate_engine(base, repair, condition, center, provenance=provenance)
 
 
 def attach_residual(model, x, y, groups, epochs):

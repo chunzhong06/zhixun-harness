@@ -11,6 +11,7 @@ import time
 
 import numpy as np
 import torch
+from harness.learning.models.robust_residual_network import residual_anchors
 
 
 _PARAMETERS = ('0.weight', '0.bias', '2.weight', '2.bias', '4.weight', '4.bias')
@@ -97,13 +98,25 @@ def continue_residual(model, x, y, groups, *, epochs=1, learning_rate=None,
     if (x.ndim != 2 or not len(x) or y.shape != (len(x),) or groups.shape != (len(x),)
             or not np.isfinite(x).all() or not np.isfinite(y).all()):
         raise ValueError('残差续训需要对应的有限训练特征、目标和设备身份')
-    keep = []
-    for group in np.unique(groups):
-        rows = np.flatnonzero(groups == group)
-        keep.extend(rows[np.linspace(0, len(rows)-1, min(_ANCHORS_PER_GROUP, len(rows))).astype(int)])
-    keep = np.asarray(keep, dtype=int)
+    keep = residual_anchors(groups, _ANCHORS_PER_GROUP)
     if not len(keep):
         raise ValueError('残差续训未取得合法设备锚点')
+    support = getattr(model, 'parent_support', None)
+    pullback_reference = None
+    if support is not None and support.quarter_pullback:
+        from harness.learning.inference.engine_parent_support import group_rows
+        # 服务端只在原工况内比较官方与续训输出，且用工况映射前的父网原始输入。
+        in_scope = np.zeros(len(keep), dtype=bool)
+        for key, indices in group_rows(x[keep], support.condition).items():
+            if key in support.support:
+                in_scope[indices] = True
+        keep = keep[in_scope]
+        if not len(keep):
+            raise ValueError('当轮训练锚点全部使用后备父网，残差头没有可训练的输出')
+        pullback_reference = support.parent.predict(x[keep])
+    density = getattr(model, '_density', None)
+    if density is not None:
+        x = density.map(x)
     native = model.native_features(x)
     parent = model.base.predict(native * model.scale + model.mean).astype(np.float32)
     raw = np.column_stack((x, native)).astype(np.float32)
@@ -113,7 +126,22 @@ def continue_residual(model, x, y, groups, *, epochs=1, learning_rate=None,
             or not np.isfinite(mean).all() or not np.isfinite(std).all() or np.any(std <= 0)):
         raise ValueError('父残差输入尺度无效')
     xx = torch.tensor((features[keep] - mean) / std, dtype=torch.float32)
-    yy = torch.tensor((np.asarray(y, dtype=np.float32)-parent)[keep, None], dtype=torch.float32)
+    target = np.asarray(y, dtype=np.float32)-parent
+    residual_weight = np.ones(len(keep), dtype=np.float32)
+    if density is not None:
+        # 交付值由固定密度估计和父模型线性混合。只对残差头求导，沿用截断前训练语义。
+        fixed, residual_weight = density.mix(x[keep],np.zeros(len(keep)),residual_weight)
+        if getattr(model,'_life_neighbors',None) is not None:
+            fixed,residual_weight=model._life_neighbors.mix(x[keep],fixed,residual_weight)
+        target = y[keep] - residual_weight*parent[keep] - fixed
+    else:
+        target = target[keep]
+    yy = torch.tensor(target[:, None], dtype=torch.float32)
+    ww = torch.tensor(residual_weight[:,None], dtype=torch.float32)
+    limit = model.state.get('engine_life_limit')
+    upper = None if limit is None else torch.tensor((limit - (y[keep]-target))[:,None], dtype=torch.float32)
+    pullback = None if pullback_reference is None else torch.tensor(
+        (pullback_reference-(y[keep]-target))[:,None], dtype=torch.float32)
     if not torch.isfinite(xx).all() or not torch.isfinite(yy).all():
         raise ValueError('残差训练数组超出有限单精度范围')
     selected = _PARAMETERS if trainable == 'all' else ('4.weight', '4.bias')
@@ -167,17 +195,25 @@ def continue_residual(model, x, y, groups, *, epochs=1, learning_rate=None,
         optimizer.load_state_dict({'state': saved_optimizer, 'param_groups': groups_state})
         torch.set_rng_state(torch.from_numpy(random_state.astype(np.uint8)))
 
+        def batch_losses(indices):
+            prediction = ww[indices]*net(xx[indices])
+            if upper is not None:
+                prediction = torch.minimum(prediction, upper[indices])
+            if pullback is not None:
+                prediction = prediction-.25*torch.relu(prediction-pullback[indices])
+            return losses(prediction, yy[indices])
+
         def evaluate_loss():
             with torch.no_grad():
-                return sum(float(losses(net(xb), yb).sum())
-                           for xb, yb in zip(xx.split(_BATCH_SIZE), yy.split(_BATCH_SIZE), strict=True)) / len(xx)
+                return sum(float(batch_losses(slice(i,i+_BATCH_SIZE)).sum())
+                           for i in range(0,len(xx),_BATCH_SIZE)) / len(xx)
 
         initial_loss = evaluate_loss()
         history = []
         for epoch in range(epochs):
             loss_sum, steps = 0., 0
             for indices in torch.randperm(len(xx)).split(_BATCH_SIZE):
-                batch_loss = losses(net(xx[indices]), yy[indices])
+                batch_loss = batch_losses(indices)
                 value = batch_loss.mean()
                 if not torch.isfinite(value):
                     raise ValueError('残差续训损失不是有限值')
@@ -216,8 +252,10 @@ def continue_residual(model, x, y, groups, *, epochs=1, learning_rate=None,
         model.auxiliary_arrays, model.state = arrays, old_state
         raise
     return {'component': 'residual', 'epochs': epochs, 'trainable': trainable,
-        'loss': loss, 'loss_definition': 'smooth_l1(residual,y-parent,beta)' if loss == 'huber'
-            else 'mean(((residual-(y-parent))/parent_target_scale)^2)',
+        'density_weighted': density is not None,
+        'loss': loss, 'loss_definition': ('frozen_density_and_unclipped_parent_plus_residual_vs_y' if density is not None else
+            'smooth_l1(residual,y-parent,beta)' if loss == 'huber'
+            else 'mean(((residual-(y-parent))/parent_target_scale)^2)'),
         'beta': float(beta), 'target_scale': scale, 'learning_rate': float(rate), 'weight_decay': float(decay),
         'anchors_per_group': _ANCHORS_PER_GROUP, 'anchors': len(keep),
         'anchor_indices_sha256': _digest(keep), 'batch_size': _BATCH_SIZE,

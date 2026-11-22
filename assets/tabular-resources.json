@@ -1,13 +1,1 @@
-{
-  "format": "harness.tabular-resources.v1",
-  "tasks": {
-    "A": {
-      "checkpoint": "/app/assets/source-a.npz",
-      "sha256": "bcb03f08fbe82607656b98c9b3ed392be0377cbde97dfd95f6f9e9bc488d0d88"
-    },
-    "B": {
-      "checkpoint": "/app/assets/source-b.npz",
-      "sha256": "dae3cbca3a646eb21949971c530bd0c47ac2f6d57774d8ede1e9eefea58bf9da"
-    }
-  }
-}
+{"format": "harness.tabular-resources.v1", "tasks": {"A": {"checkpoint": "/app/assets/source-a.npz", "sha256": "3d8a5db4f8955eacf62d84eb3b462c002abae96a4c44145c928081c40957aba7"}, "B": {"checkpoint": "/app/assets/source-b.npz", "sha256": "633967c47c19c1bfba94408cf736caf99f0639bea7f92a15e6701b3183955c87"}}}

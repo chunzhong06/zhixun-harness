@@ -1,0 +1,164 @@
+{
+  "version": "0.3.1",
+  "sdk": "1.0.4",
+  "archive_sha256": "d130cb985cb3e3bdbd27e123a470c40dc2cc0cf1ae2a3ed61ebed69ec132c41d",
+  "manifest_digest": "sha256:f89abf3cad4a21c91e77d50a3ec00826a96fde40b7192b3c1b19b9a1846cd57e",
+  "source_files_verified": 399,
+  "source_rebuild_public_probes": [
+    {
+      "task": "A",
+      "rows": 256,
+      "accuracy": 0.87109375,
+      "macro_f1": 0.7111375782357596
+    },
+    {
+      "task": "B",
+      "rows": 256,
+      "mae": 560.7229930974704,
+      "rmse": 680.1950210405425
+    },
+    {
+      "task": "C",
+      "rows": 256,
+      "mae": 38.9831028859562,
+      "rmse": 52.818602331556676,
+      "above_235": 5
+    }
+  ],
+  "scope": "本地实际SDK、公开阶段留出与历史研究程序回放，官方任务函数复算终选；0.2.32平台总分由队伍提供。",
+  "resources": {
+    "cpus": 4,
+    "memory_gib": 4,
+    "round_seconds": {
+      "A": 1800,
+      "B": 1800,
+      "C": 600
+    },
+    "feedback_rows": {
+      "A": 128,
+      "B": 128,
+      "C": 512
+    }
+  },
+  "official_metric": "公开赛题包的 baselines.train.metrics",
+  "website_trials": 0,
+  "real_gateway_requests": 0,
+  "last_reported_official": {
+    "version": "0.2.32",
+    "total": 62.89
+  },
+  "tasks": {
+    "A": {
+      "full_public_rows": 1244,
+      "final_metrics": {
+        "accuracy": 0.8786173633440515,
+        "macro_f1": 0.7140297220788709
+      },
+      "rounds": 10,
+      "stage_gains": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "stage_mean_gain": 0.0,
+      "stage_worst_gain": 0.0,
+      "ten_round_seconds": 217.57855740000014,
+      "peak_round_seconds": 64.8686159000008,
+      "adopted_rounds": [],
+      "gateway_replay_calls": 12,
+      "selected_sha256": "fd1e08b2aad08b2e9754f9b2dfdc029481c0da7ecdedca0abb0ec6fcc818c757",
+      "task_wall_seconds_with_scoring": 529.6341862678528
+    },
+    "B": {
+      "full_public_rows": 1679,
+      "final_metrics": {
+        "mae": 220.2722657613338,
+        "rmse": 280.0495680350682
+      },
+      "rounds": 10,
+      "stage_gains": [
+        -0.6713077761380701,
+        0.49319573697608465,
+        0.6159686294934477
+      ],
+      "stage_mean_gain": 0.14595219677715407,
+      "stage_worst_gain": -0.6713077761380701,
+      "ten_round_seconds": 2031.1747182000017,
+      "peak_round_seconds": 306.9155819000007,
+      "adopted_rounds": [
+        1,
+        2,
+        5,
+        7
+      ],
+      "gateway_replay_calls": 30,
+      "selected_sha256": "393fd1c78364a5717e0e56f2ac345a9f4032ad192a991f7570f600908ccd2bc2",
+      "task_wall_seconds_with_scoring": 2400.7484891000004
+    },
+    "C": {
+      "full_public_rows": 23049,
+      "final_metrics": {
+        "mae": 32.46832391103882,
+        "rmse": 46.37674447149479,
+        "nasa": 754425652.6171579
+      },
+      "rounds": 10,
+      "stage_gains": [
+        0.10518703466162171,
+        0.04021544723392334,
+        0.11444872523380267,
+        0.14259620507238424
+      ],
+      "stage_mean_gain": 0.10061185305043299,
+      "stage_worst_gain": 0.04021544723392334,
+      "ten_round_seconds": 553.8897959999986,
+      "peak_round_seconds": 72.04606880000028,
+      "adopted_rounds": [
+        1,
+        2,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ],
+      "gateway_replay_calls": 28,
+      "selected_sha256": "fb2d044ea5e9ad484aeeee610cd0a7d22ef7676dd3d5825eec9398d668fd8a05",
+      "task_wall_seconds_with_scoring": 771.2789787000002
+    }
+  },
+  "ten_round_seconds_sum": 2802.6430716000004,
+  "suite_start_utc": "2026-11-22T07:51:14.565094+00:00",
+  "suite_end_utc": "2026-11-22T08:53:05.894413+00:00",
+  "suite_wall_seconds": 3711.329319,
+  "successful_invocation_seconds": 25.663929299998927,
+  "timing": "三项十轮合计只加已接受轮次。整场从首个作业启动至最后的独立全量评分和结果落盘，包括阶段复测和可能的恢复间隔。",
+  "c_initial": {
+    "rmse": 52.86857256611151,
+    "mae": 38.89982982666355
+  },
+  "c_initial_changed_by_former_cap": 480,
+  "b_device_rmse": {
+    "Bearing1_4": {
+      "本版终选": 381.2997555380815,
+      "uniform1147": 285.72753472683365,
+      "full7032": 307.85686227644015
+    },
+    "Bearing2_4": {
+      "本版终选": 208.40795794349796,
+      "uniform1147": 112.64305537451904,
+      "full7032": 105.6456156282406
+    },
+    "Bearing3_4": {
+      "本版终选": 272.0396832188293,
+      "uniform1147": 408.6937547883583,
+      "full7032": 405.52240002761175
+    }
+  }
+}

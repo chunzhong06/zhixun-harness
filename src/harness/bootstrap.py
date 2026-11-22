@@ -1,4 +1,4 @@
-"""官方父检查点上的真实源码研究与采用；支持Luna队列或正式PyTRiO服务。"""
+"""官方父检查点上运行真实源码研究；模型调用由调用方显式注入。"""
 from argparse import ArgumentParser
 from hashlib import sha256
 from pathlib import Path
@@ -15,12 +15,16 @@ ROOT = workspace_root()
 import numpy as np
 from harness.research.free_research_driver import run_free_research
 from harness.research.research_ledger import round_summary
-from harness.adapters.research.native_research import prepare, measure, exploration_diagnostics, export_release, NativeExecutor, INSTRUCTION, DEFAULT_SOURCE
+from harness.evaluation.native import measure, exploration_diagnostics
+from harness.learning.artifacts.native import export_release
+from harness.adapters.executors.native import NativeExecutor
+from harness.research.native_instruction import INSTRUCTION, DEFAULT_SOURCE
 from harness.learning.inference.complete_checkpoint import load_checkpoint
 from harness.adapters.providers.research_broker import AuthorBroker
 from harness.engine.research_recovery import RecoverableBroker, file_identity, verify_files, freeze_invocation
 from harness.learning.models.official_rul_cpu import _trainer
-from harness.learning.training.continuation_recipes import reference_programs, gas_reference_programs, bearing_reference_programs, starting_reference
+from harness.learning.training.continuation_recipes import (
+    ENGINE_UNIFORM, reference_programs, gas_reference_programs, bearing_reference_programs, engine_reference_programs, starting_reference)
 from harness.adapters.storage.local import atomic_json
 from harness.adapters.tracking.native_trace import save_stage_trace, emit_trace
 
@@ -36,30 +40,29 @@ def current_parent(task):
     return path
 
 
-def credential():
-    """Windows读取当前用户配置，避免沿用换号前的进程环境；其他主机用运行时变量。"""
-    if os.name == 'nt':
-        import winreg
-        try:
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, 'Environment') as key:
-                return winreg.QueryValueEx(key, 'PYTRIO_API_KEY')[0]
-        except FileNotFoundError:
-            pass
-    return os.environ.get('PYTRIO_API_KEY')
-
-
 async def run(task, output, *, driver='queue', calls=4, stages=1, model='Qwen/Qwen3.8-27B',
               resume=False, data_root=ROOT / 'data/official', parent_checkpoint=None,
               broker_factory=None, stage_hook=None, candidate_cache=True, prepared=None, history=(), max_epochs=60,
               program_seconds=90):
     output = Path(output).resolve()
-    if prepared is not None:
-        task_dir, oracle = prepared
-    elif resume:
-        task_dir = output / 'task'
-        oracle = json.loads((output / 'oracle.json').read_bytes())
-    else:
-        task_dir, oracle = prepare(task, output, data_root=data_root, parent_checkpoint=parent_checkpoint)
+    if prepared is None:
+        if resume:
+            prepared = output/'task', json.loads((output/'oracle.json').read_bytes())
+        else:
+            from harness.adapters.datasets.native import prepare
+            prepared = prepare(task, output, data_root=data_root, parent_checkpoint=parent_checkpoint)
+    return await run_prepared(task, output, prepared=prepared, parent_checkpoint=parent_checkpoint,
+        driver=driver, calls=calls, stages=stages, model=model, resume=resume, data_root=data_root,
+        broker_factory=broker_factory, stage_hook=stage_hook, candidate_cache=candidate_cache,
+        history=history, max_epochs=max_epochs, program_seconds=program_seconds)
+
+
+async def run_prepared(task, output, *, prepared, parent_checkpoint, driver, calls, stages, model,
+                       resume=False, data_root=None, broker_factory=None, stage_hook=None,
+                       candidate_cache=True, history=(), max_epochs=60, program_seconds=90):
+    """运行已经准备好的当轮输入。平台入口只调用这里，不会回退到研究数据 ZIP。"""
+    output = Path(output).resolve()
+    task_dir, oracle = prepared
     source_files = package_sources()
     inputs = source_files + list(task_dir.iterdir()) + [output / name for name in (
         'oracle.json', 'service-inputs.npz', 'initial-predictions.npz', 'identity.json')]
@@ -70,7 +73,7 @@ async def run(task, output, *, driver='queue', calls=4, stages=1, model='Qwen/Qw
         inputs.append(Path(initial_specification['tabular_resource']['checkpoint']))
     freeze_invocation(output / 'invocation.json', {'task': task, 'driver': driver, 'calls': calls,
                       'stages': stages, 'model': model, 'max_epochs': max_epochs, 'program_seconds':program_seconds,
-                      'candidate_cache': candidate_cache, 'data_root': str(Path(data_root).resolve()),
+                      'candidate_cache': candidate_cache, 'data_root': str(Path(data_root).resolve()) if data_root is not None else None,
                       'parent_checkpoint': str(Path(parent_checkpoint).resolve()) if parent_checkpoint else None}, inputs, resume=resume)
     if resume and (output / 'completion.json').exists():
         verify_files(json.loads((output / 'completion.json').read_bytes())['artifacts'])
@@ -84,6 +87,8 @@ async def run(task, output, *, driver='queue', calls=4, stages=1, model='Qwen/Qw
     baseline_service = current['serve'].copy()
     references = reference_programs(task)
     if task == 'engine':
+        if max_epochs >= 4:
+            references['发动机按行等权续训四轮'] = ENGINE_UNIFORM
         references['源工况完整父版续训'] = 'def train(session):\n    session.build_regression_components((21,22,23),(0,2,0),epochs=60,head_epochs=12)\n'
         references['源工况组件后均衡续训'] = '''import numpy as np
 def train(session):
@@ -160,11 +165,7 @@ def round_session(task_dir, driver, model, broker_factory=None, *, rounds=(), ma
         if broker_factory is not None: broker=broker_factory(folder,calls)
         elif driver=='queue': broker=AuthorBroker(folder/'queue',max_calls=calls,timeout=200)
         elif driver=='service':
-            from harness.adapters.providers.pytrio_planner import PyTrioConfig
-            from harness.adapters.providers.service_transport import HttpChatTransport
-            from harness.adapters.providers.service_research_broker import ServiceResearchBroker
-            config=PyTrioConfig(model=model,max_tokens=8192,timeout_seconds=600,raw_completion=True)
-            broker=ServiceResearchBroker(folder/'queue',config,HttpChatTransport(config,credential(),allow_network=True),max_calls=calls)
+            raise ValueError('service驱动必须注入平台宿主的rnd.model网关')
         else: raise ValueError('未知驱动，工程验证须显式注入 broker')
         return RecoverableBroker(broker,folder/'exchanges')
     def predict(parent, values, folder):
@@ -177,11 +178,20 @@ def round_session(task_dir, driver, model, broker_factory=None, *, rounds=(), ma
         history.append({'stage':r['stage'],'accepted':r['accepted'],'error':r['error'],
             'platform_stage_id':r.get('platform_stage_id'), 'research':r.get('research'),
             'data_identity':r.get('data_identity'), 'selection':r.get('selection'),
+            'reference_observation':r.get('reference_observation'),
             'selected_source_sha256':r['selected'].get('source_sha256'),
             'selected_exploration_loss':r['selected']['score'],'published_sha256':r['published_sha256']})
     complete=complete_checkpoint.is_complete(parent or Path(task_dir)/'initial.npz')
     with np.load(parent or Path(task_dir)/'initial.npz', allow_pickle=False) as stored:
-        complete_kind=json.loads(str(stored['complete_state'])).get('kind') if complete else None
+        complete_state=json.loads(str(stored['complete_state'])) if complete else {}
+        complete_kind=complete_state.get('kind')
+        tabm_present='tabm_readout' in stored.files
+        baseline_context_present='baseline_context_x' in stored.files
+        drift_present='drift_readout' in complete_state
+        parent_meta=json.loads(str(stored['metadata']))
+        parent_classes=parent_meta.get('classes',[])
+        gas_estimators=(json.loads(str(stored['tabpfn_classifier_state'])).get('n_estimators')
+                        if 'tabpfn_classifier_state' in stored.files else None)
         residual_resumable = all(name in stored.files for name in (
             'residual_random_state', 'residual_optimizer_0_weight_exp_avg',
             'residual_optimizer_4_bias_exp_avg_sq', 'residual_optimizer_4_bias_step'))
@@ -192,6 +202,7 @@ def round_session(task_dir, driver, model, broker_factory=None, *, rounds=(), ma
                                 'tabicl' if 'tabular_classifier_state' in resource.files else None)
             if classifier_backend=='tabpfn':
                 descriptor=json.loads(str(resource['tabpfn_classifier_state']))
+                gas_estimators=descriptor.get('n_estimators')
                 classifier_parent_weight=float(descriptor.get('recommended_parent_weight',.25))
                 if not np.isfinite(classifier_parent_weight) or not 0<classifier_parent_weight<1:
                     raise ValueError('分类教师的预定父组合比例无效')
@@ -207,7 +218,132 @@ def round_session(task_dir, driver, model, broker_factory=None, *, rounds=(), ma
                 if not np.isfinite(regressor_parent_weight) or not 0<regressor_parent_weight<1:
                     raise ValueError('回归教师的预定父组合比例无效')
         if regressor_backend is None:raise ValueError('未知回归共享资源')
+    can_fit_tabm = False
+    if task=='bearing' and complete_kind=='tabpfn-regression-parent' and not tabm_present and max_epochs>=7:
+        from importlib.util import find_spec
+        if find_spec('tabm') and find_spec('rtdl_num_embeddings'):
+            with np.load(Path(task_dir)/'train.npz',allow_pickle=False) as batch:
+                x, y = batch['x'], batch['y']
+                can_fit_tabm = len(y)>=16 and np.ptp(y)>0 and np.any(np.ptp(x.astype(np.float32),axis=0)>0)
+    can_fit_baseline_context=False
+    if (task=='gas' and not baseline_context_present and gas_estimators in (4, 8) and
+            (complete_kind=='tabpfn-classification-parent' or classifier_backend=='tabpfn')):
+        from harness.learning.inference.tabpfn_classifier import baseline_context_available
+        with np.load(Path(task_dir)/'train.npz',allow_pickle=False) as batch:
+            can_fit_baseline_context=baseline_context_available(batch['x'],batch['y'])
+    can_fit_drift=False
+    if task=='gas' and not drift_present and (baseline_context_present or can_fit_baseline_context):
+        from harness.learning.inference.gas_drift_readout import fit_readout
+        with np.load(Path(task_dir)/'train.npz',allow_pickle=False) as batch:
+            # 用当前源训练判断候选能否构建。数值执行器在隔离进程中重建它。
+            can_fit_drift=fit_readout(batch['x'],batch['y'],parent_classes) is not None
+    can_fit_toluene = False
+    if task=='gas' and drift_present and 'toluene_readout' not in complete_state:
+        from harness.learning.inference.gas_toluene_readout import available
+        with np.load(Path(task_dir)/'train.npz',allow_pickle=False) as batch:
+            can_fit_toluene=available(batch['x'],batch['y'],parent_classes)
+    can_fit_kinetics=False
+    if (task=='gas' and 'kinetic_readout' not in complete_state
+            and (can_fit_toluene or 'toluene_readout' in complete_state)):
+        from harness.learning.inference.gas_kinetic_support import available
+        with np.load(Path(task_dir)/'train.npz',allow_pickle=False) as batch:
+            can_fit_kinetics=available(batch['x'],batch['y'],parent_classes)
+    can_fit_density=False
+    can_fit_device = False
+    if task=='gas' and complete_kind == 'tabpfn-classification-parent':
+        from harness.learning.inference.gas_device_context import prepare as prepare_device
+        with np.load(parent or Path(task_dir)/'initial.npz',allow_pickle=False) as stored, \
+             np.load(Path(task_dir)/'train.npz',allow_pickle=False) as batch:
+            can_fit_device = prepare_device(batch['x'], batch['y'], stored['classifier_source_x'],
+                                            parent_classes, complete_state.get('device_context')) is not None
+    after_uniform=False
+    if task=='engine' and residual_resumable and complete_state.get('condition') and 'engine_condition_density' not in complete_state:
+        from harness.learning.inference.engine_condition_density import available
+        with np.load(Path(task_dir)/'train.npz',allow_pickle=False) as batch:
+            can_fit_density=available(batch['x'],batch['y'],complete_state['condition'])
+        if can_fit_density and history:
+            parent_id=sha256(Path(parent or Path(task_dir)/'initial.npz').read_bytes()).hexdigest()
+            uniform_id=sha256(ENGINE_UNIFORM.encode()).hexdigest()
+            after_uniform=any(r['accepted'] and r['published_sha256']==parent_id and r['selected_source_sha256']==uniform_id for r in history)
+    can_fit_neighbors=False
+    if task=='engine' and residual_resumable and 'engine_condition_density' in complete_state and 'engine_neighbors' not in complete_state:
+        from harness.learning.inference.engine_neighbors import usable_modes
+        with np.load(Path(task_dir)/'train.npz',allow_pickle=False) as batch:
+            can_fit_neighbors=bool(usable_modes(batch['x'],batch['y'],complete_state['condition']))
+    can_align_engine = False
+    if task == 'engine':
+        from harness.learning.inference.engine_setting_alignment import fit as fit_alignment, setting_columns
+        if setting_columns(parent_meta['paths']) is not None:
+            from harness.adapters.platforms.baselines.core_model import Model
+            fitted = complete_checkpoint.load_checkpoint(parent or Path(task_dir)/'initial.npz', Model)
+            with np.load(Path(task_dir)/'train.npz', allow_pickle=False) as batch:
+                base = getattr(fitted, 'unaligned_engine', fitted)
+                can_align_engine = fit_alignment(base, batch['x'], batch['y'], parent_meta.get('engine_input_alignment', [])) is not None
+    cap_available=False
+    bearing_grid_available = False
+    if task=='bearing' and (not complete or complete_kind in ('tabpfn-regression-parent', 'bearing-native-grid-parent')):
+        from harness.learning.inference.bearing_grid_readout import checkpoint_bins, new_groups
+        with np.load(parent or Path(task_dir)/'initial.npz',allow_pickle=False) as stored, \
+             np.load(Path(task_dir)/'train.npz',allow_pickle=False) as batch:
+            paths = parent_meta['paths']
+            source = stored['readout_source_x'] if complete_kind == 'tabpfn-regression-parent' else None
+            bins = checkpoint_bins(stored['mean'], stored['scale'], paths) if source is None else None
+            bearing_grid_available = bool(new_groups(batch['x'], batch['y'], source, paths,
+                complete_state.get('bearing_grid_readout'), source_bins=bins))
+    tabm_spec=complete_state.get('tabm_readout',{})
+    if task=='bearing' and tabm_present and 'head_support' in tabm_spec and 'health_cap' not in tabm_spec:
+        from harness.learning.inference.bearing_health_readout import available
+        with np.load(Path(task_dir)/'train.npz',allow_pickle=False) as batch:
+            cap_available=available(parent_meta['paths'],batch['y'])
+    can_fit_source_repair=False
+    can_fit_partial=False
+    if task=='gas' and parent_meta.get('profile')=='A' and (not complete or 'gas_partial_context' in parent_meta):
+        from harness.learning.inference.gas_partial_readout import prepare as prepare_partial
+        from harness.adapters.platforms.baselines.core_model import Model
+        fitted=complete_checkpoint.load_checkpoint(parent or Path(task_dir)/'initial.npz',Model)
+        with np.load(Path(task_dir)/'train.npz',allow_pickle=False) as batch:
+            prepared=prepare_partial(fitted,batch['x'],batch['y'])
+            can_fit_partial=(prepared is not None and (prepared[-1] is None or prepared[-1]['source_sha256']!=prepared[3]))
+    if (task=='gas' and not complete and len(parent_classes)==6 and len(parent_meta['paths'])==128
+            and 'gas_pair_patch' not in parent_meta):
+        from harness.learning.inference.gas_views import six_class_source
+        with np.load(Path(task_dir)/'train.npz',allow_pickle=False) as batch:
+            can_fit_source_repair=six_class_source(batch['y'])
+    engine_limits = {}
+    if task == 'engine' and complete_state.get('residual'):
+        from harness.learning.training.engine_life_limit import source_limit
+        with np.load(Path(task_dir)/'train.npz', allow_pickle=False) as batch:
+            limit = source_limit(batch['y'])
+        old_limit = complete_state.get('engine_life_limit')
+        if complete_state.get('engine_parent_support'):
+            enabled = complete_state['engine_parent_support'].get('quarter_pullback', False)
+            engine_limits['engine_parent_pullback_action'] = 'remove' if enabled else 'apply'
+        if old_limit is not None:
+            engine_limits['engine_life_limit_removable'] = True
+            engine_limits['comparison_reference'] = '发动机解除上限并续训'
+        if limit is not None and limit != old_limit:
+            engine_limits['engine_life_limit_available'] = True
+            engine_limits['comparison_reference'] = '发动机源寿命上限与父版续训'
     capabilities={'trainable':['w1','b1','w2','b2'],'max_epochs':max_epochs,'program_seconds':program_seconds,
+        **engine_limits,
+        'bearing_health_cap_available':bool(cap_available),
+        'bearing_grid_readout_available':bearing_grid_available,
+        'engine_condition_density_available':can_fit_density,'engine_after_uniform':after_uniform,
+        'engine_neighbors_available':can_fit_neighbors,
+        'engine_setting_alignment_available':can_align_engine,
+        'gas_toluene_readout_available':bool(can_fit_toluene),
+        'gas_kinetic_support_available':bool(can_fit_kinetics),
+        'gas_device_context_available':can_fit_device,
+        'gas_drift_readout_available':can_fit_drift,
+        'anonymous_engine_parent':task=='engine' and residual_resumable and
+            complete_state.get('provenance',{}).get('anonymous_source_rows',0)>0,
+        'gas_baseline_context_available':bool(can_fit_baseline_context),
+        'tabm_readout_available':bool(can_fit_tabm),
+        'tabm_source_support_available': (task == 'bearing' and complete_kind == 'tabpfn-regression-parent'
+                                          and tabm_present and 'source_support' not in complete_state['tabm_readout']),
+        'tabm_head_support_available': (task=='bearing' and complete_kind=='tabpfn-regression-parent'
+                                      and tabm_present and 'source_support' in complete_state['tabm_readout']
+                                      and 'head_support' not in complete_state['tabm_readout']),
         'tabicl_source_component':task=='bearing' and regressor_backend=='tabicl' and not complete,
         'tabpfn_regression_component':task=='bearing' and regressor_backend=='tabpfn' and not complete,
         'tabpfn_regression_parent':task=='bearing' and complete_kind=='tabpfn-regression-parent',
@@ -218,7 +354,8 @@ def round_session(task_dir, driver, model, broker_factory=None, *, rounds=(), ma
         'tabpfn_classification_parent':task=='gas' and complete_kind=='tabpfn-classification-parent',
         'classifier_parent_weight':classifier_parent_weight,
         'epoch_budget_scope':'本次实验配置，可在执行时限内调整；不是赛方统一60轮上限',
-        'gas_source_repair':task == 'gas' and not complete,
+        'gas_source_repair':can_fit_source_repair,
+        'gas_partial_context_available':can_fit_partial,
         'gas_readout_choices':['parent'] if task == 'gas' and complete_kind=='gas-source-vote' else [],
         'build_components_before_first_epoch':not complete,
         'existing_auxiliary_components':'residual_resumable' if residual_resumable else 'frozen' if complete else None,
@@ -228,5 +365,5 @@ def round_session(task_dir, driver, model, broker_factory=None, *, rounds=(), ma
     return RoundSession(NativeExecutor,make_broker,run_free_research,measure,exploration_diagnostics,
         predict,save_stage_trace,emit_trace,Path(complete_checkpoint.__file__).read_text(encoding='utf-8'),
         INSTRUCTION,history,capabilities,max_epochs,
-        gas_reference_programs if task=='gas' else bearing_reference_programs if task=='bearing' else None,
+        gas_reference_programs if task=='gas' else bearing_reference_programs if task=='bearing' else engine_reference_programs if task=='engine' else None,
         round_summary,starting_reference)

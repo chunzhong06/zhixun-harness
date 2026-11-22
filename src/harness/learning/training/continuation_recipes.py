@@ -81,14 +81,46 @@ def reference_programs(task=None):
             if name != 'expanded-balanced-huber-fine-tuning' or task == 'bearing'}
 
 
+ENGINE_UNIFORM = ('def train(session):\n'
+                  '    for epoch in range(4):\n'
+                  '        session.train_epoch(learning_rate=0.0005, batch_size=256)\n')
+
+
+def engine_reference_programs(diagnostics, capabilities):
+    programs = {}
+    action = capabilities.get('engine_parent_pullback_action')
+    if action in ('apply','remove'):
+        name = '发动机父网有界回调与续训' if action == 'apply' else '发动机撤除父网回调并续训'
+        programs[name] = ('def train(session):\n    session.train_epoch(learning_rate=0.000005, batch_size=256)\n'
+                          f'    session.set_engine_parent_pullback(enabled={action == "apply"})\n')
+    if capabilities.get('engine_life_limit_available'):
+        programs['发动机源寿命上限与父版续训'] = (
+            'def train(session):\n    session.train_epoch(learning_rate=0.000005, batch_size=256)\n    session.set_engine_life_limit()\n')
+    if capabilities.get('engine_life_limit_removable'):
+        programs['发动机解除上限并续训'] = (
+            'def train(session):\n    session.set_engine_life_limit(enabled=False)\n    session.train_epoch(learning_rate=0.000005, batch_size=256)\n')
+    if capabilities.get('engine_setting_alignment_available'):
+        programs['发动机按父预测校准工况编码'] = (
+            'def train(session):\n    session.build_engine_setting_alignment()\n    session.train_epoch(learning_rate=0.0001)\n')
+    if capabilities.get('engine_neighbors_available'):
+        programs['发动机同工况近邻与父版续训'] = (
+            'def train(session):\n    session.train_epoch(learning_rate=0.000005, batch_size=256)\n    session.build_engine_life_neighbors()\n')
+    elif capabilities.get('engine_condition_density_available'):
+        programs['发动机分工况寿命密度与父版续训'] = (
+            'def train(session):\n    session.build_engine_condition_density()\n    session.train_epoch(learning_rate=0.000005, batch_size=256)\n')
+    return programs
+
+
 def starting_reference(task, references, capabilities):
     """按此前有效组件预定一次实际起点，不读取本轮确认或服务答案。"""
     epochs = capabilities['max_epochs']
     if task == 'gas':
-        names = ('TabPFN分类组合父版接续','TabPFN分类组合与源修正续训',
+        names = ('气体缺类样本与父版联合读出','气体新设备上下文与父版续训','气体响应尺度与源支持续训','气体甲苯复核与父版续训','气体本底判别与父版续训','气体本底集成父版接续','气体本底集成与源修正续训','TabPFN分类组合父版接续','TabPFN分类组合与源修正续训',
                  'TabICLv2分类组合父版接续','TabICLv2分类组合与源修正续训') + (('balanced-source-shape-repair',) if epochs >= 2 else ()) + ('source-shape-confusion-repair', 'gas-parent-readout-continuation')
+    elif task == 'bearing' and capabilities.get('bearing_grid_readout_available'):
+        names = ('轴承新采集窗口校准与父版续训',)
     elif task == 'bearing' and capabilities.get('tabpfn_regression_parent'):
-        names = ('TabPFN回归组合父版接续',)
+        names = ('轴承新采集窗口校准与父版续训','轴承能量冲击上界与父版续训','TabM按特征与多头分歧组合续训','TabM按源特征范围组合续训','TabM与完整回归父版联合续训','TabPFN回归组合父版接续')
     elif task == 'bearing' and epochs >= 25 and capabilities.get('tabpfn_regression_component'):
         names = ('TabPFN原始读出与父版续训',)
     elif task == 'bearing' and epochs >= 25 and capabilities.get('tabicl_source_component'):
@@ -97,6 +129,14 @@ def starting_reference(task, references, capabilities):
         names = ('expanded-balanced-huber-fine-tuning',)
     elif task == 'bearing' and epochs >= 12 and capabilities.get('build_components_before_first_epoch'):
         names = ('extended-balanced-fine-tuning',)
+    elif task == 'engine' and capabilities.get('engine_setting_alignment_available'):
+        names = ('发动机按父预测校准工况编码',)
+    elif task == 'engine' and capabilities.get('engine_neighbors_available'):
+        names=('发动机同工况近邻与父版续训',)
+    elif task == 'engine' and capabilities.get('engine_after_uniform') and capabilities.get('engine_condition_density_available'):
+        names = ('发动机分工况寿命密度与父版续训','发动机按行等权续训四轮')
+    elif task == 'engine' and epochs >= 4 and capabilities.get('anonymous_engine_parent'):
+        names = ('发动机按行等权续训四轮',)
     elif task == 'engine' and epochs >= 60 and capabilities.get('build_components_before_first_epoch'):
         names = ('源工况组件后均衡续训', '源工况完整父版续训')
     else:
@@ -107,8 +147,23 @@ def starting_reference(task, references, capabilities):
 def bearing_reference_programs(diagnostics, capabilities):
     """按实际资源选择作者后端；新组合保留已有父网，后续只接续完整模型。"""
     programs = {}
+    if capabilities.get('bearing_grid_readout_available'):
+        programs['轴承新采集窗口校准与父版续训'] = (
+            'def train(session):\n    session.train_epoch(learning_rate=0.0001)\n    session.build_bearing_grid_readout()\n')
     if capabilities.get('tabpfn_regression_parent'):
+        if capabilities.get('bearing_health_cap_available'):
+            programs['轴承能量冲击上界与父版续训']=(
+                'def train(session):\n    session.build_bearing_health_cap()\n    session.train_epoch(learning_rate=0.0001)\n')
         programs['TabPFN回归组合父版接续'] = 'def train(session):\n    session.train_epoch(learning_rate=0.0001)\n'
+        if capabilities.get('tabm_readout_available'):
+            programs['TabM与完整回归父版联合续训'] = (
+                'def train(session):\n    session.build_tabm_readout()\n    session.train_epoch(learning_rate=0.0001)\n')
+        if capabilities.get('tabm_source_support_available'):
+            programs['TabM按源特征范围组合续训'] = (
+                'def train(session):\n    session.build_tabm_source_support()\n    session.train_epoch(learning_rate=0.0001)\n')
+        if capabilities.get('tabm_head_support_available'):
+            programs['TabM按特征与多头分歧组合续训'] = (
+                'def train(session):\n    session.build_tabm_source_support(head_spread=True)\n    session.train_epoch(learning_rate=0.0001)\n')
     if capabilities['max_epochs'] >= 25:
         if capabilities.get('tabpfn_regression_component'):
             name, method = 'TabPFN原始读出与父版续训', 'build_tabpfn_readout'
@@ -128,6 +183,11 @@ def bearing_reference_programs(diagnostics, capabilities):
 def gas_reference_programs(diagnostics, capabilities):
     """按合法探索混淆提出一个源修正，或复用已有父分量；不读取确认标签。"""
     programs = {}
+    if capabilities.get('gas_partial_context_available'):
+        programs['气体缺类样本与父版联合读出'] = (
+            "def train(session):\n    session.build_gas_partial_context(view='log', protect_missing=True)\n    session.train_epoch(learning_rate=0.0001)\n")
+        programs['气体已见类别中心与父版续训'] = (
+            "def train(session):\n    session.build_gas_partial_context(view='log', protect_missing=False)\n    session.train_epoch(learning_rate=0.0001)\n")
     if capabilities.get('gas_source_repair'):
         confusion = diagnostics['confusion_true_rows_prediction_columns']
         count, actual, predicted = max((confusion[a][p], a, p) for a in range(6) for p in range(6) if a != p)
@@ -144,7 +204,7 @@ def gas_reference_programs(diagnostics, capabilities):
                 '    _, inverse, counts = np.unique(session.targets, return_inverse=True, return_counts=True)\n'
                 '    weights = 1.0 / counts[inverse]\n'
                 f'    weights[session.targets == {actual}] *= 1.15\n'
-                '    weights /= weights.mean()\n'
+                '    weights /= np.mean(weights)\n'
                 '    for _ in range(2):\n'
                 '        session.train_epoch(learning_rate=0.0005, sample_weights=weights)\n')
     if 'parent' in capabilities.get('gas_readout_choices', []):
@@ -174,4 +234,23 @@ def gas_reference_programs(diagnostics, capabilities):
             programs['TabPFN分类组合与源修正续训']='def train(session):\n'+attachment
     if capabilities.get('tabpfn_classification_parent'):
         programs['TabPFN分类组合父版接续']='def train(session):\n    session.train_epoch(learning_rate=0.0001)\n'
+        if capabilities.get('gas_toluene_readout_available'):
+            programs['气体甲苯复核与父版续训']=programs['TabPFN分类组合父版接续']+'    session.build_gas_toluene_readout()\n'
+        if capabilities.get('gas_device_context_available'):
+            programs['气体新设备上下文与父版续训'] = programs['TabPFN分类组合父版接续']+'    session.build_gas_device_context()\n'
+        if capabilities.get('gas_kinetic_support_available'):
+            start=programs.get('气体甲苯复核与父版续训',programs['TabPFN分类组合父版接续'])
+            programs['气体响应尺度与源支持续训']=start+'    session.build_gas_kinetic_support()\n'
+    if capabilities.get('gas_baseline_context_available'):
+        if capabilities.get('tabpfn_classification_parent'):
+            programs['气体本底集成父版接续']=('def train(session):\n    session.build_gas_baseline_ensemble()\n'
+                                            '    session.train_epoch(learning_rate=0.0001)\n')
+        elif capabilities.get('tabpfn_classification_component') and 'TabPFN分类组合与源修正续训' in programs:
+            programs['气体本底集成与源修正续训']=programs['TabPFN分类组合与源修正续训'].replace(
+                'session.build_tabpfn_classifier(', 'session.build_gas_baseline_ensemble(')
+    if capabilities.get('gas_drift_readout_available'):
+        for name in ('气体本底集成父版接续','气体本底集成与源修正续训','TabPFN分类组合父版接续'):
+            if name in programs:
+                programs['气体本底判别与父版续训']=programs[name]+'    session.build_gas_drift_readout()\n'
+                break
     return programs

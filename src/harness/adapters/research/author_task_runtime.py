@@ -9,14 +9,58 @@ import pandas as pd
 
 
 _training_binding = None
+_query_binding = None
+
+
+def snapshot_query_inputs(folder):
+    """宿主/可信启动器绑定公开查询；无数组契约的旧SDK接口保持原语义。"""
+    root = Path(folder).resolve()
+    path = root / 'array-contract.json'
+    if not path.exists():
+        return None
+    contract = json.loads(path.read_bytes())
+    role = contract.get('confirmation_role')
+    enabled = contract.get('independent_confirmation_enabled')
+    if (contract.get('schema_version') != 1 or type(enabled) is not bool
+            or role not in ('independent', 'development_alias') or enabled != (role == 'independent')):
+        raise ValueError('必须显式声明独立确认或development_alias')
+    query_ids = {}
+    for name in ('validation.csv', 'test.csv'):
+        frame = pd.read_csv(root / name)
+        if list(frame.columns) != ['sample_key'] or frame['sample_key'].isna().any():
+            raise ValueError('公开查询只能含匿名sample_key，不能包含答案')
+        ids = frame['sample_key'].astype(str).tolist()
+        if len(ids) != len(set(ids)):
+            raise ValueError('查询匿名ID重复')
+        query_ids[name] = ids
+    if role == 'development_alias' and (root / 'test.csv').read_bytes() != (root / 'validation.csv').read_bytes():
+        raise ValueError('development_alias必须与原开发查询完全相同')
+    return {'files': {p.name: sha256(p.read_bytes()).hexdigest() for p in root.iterdir() if p.is_file()},
+            'query_ids': query_ids, 'confirmation_role': role, 'independent_confirmation_enabled': enabled,
+            'objective': contract.get('objective')}
+
+
+def verify_query_inputs(folder, binding):
+    """评分前核原ID、字节内容和契约；不读取任何宿主答案。"""
+    if binding is None:
+        return
+    current = snapshot_query_inputs(folder)
+    if current != binding:
+        raise ValueError('原查询ID、输入内容或确认契约已改变')
+
+
+def query_access():
+    """只返回公开绑定信息；原答案始终不在本进程。"""
+    return json.loads(json.dumps(_query_binding)) if _query_binding is not None else None
 
 
 def bind_training_access(folder):
     """由执行器在生成程序开始前绑定任务权限和文件身份；缺少声明时关闭。"""
-    global _training_binding
+    global _training_binding, _query_binding
     if _training_binding is not None:
         raise RuntimeError('本进程的训练权限已经绑定，生成程序不能重新声明')
     root = Path(folder).resolve()
+    _query_binding = snapshot_query_inputs(root)
     path = root / 'feedback-training.json'
     record = json.loads(path.read_bytes()) if path.exists() else {'schema_version': 1, 'enabled': False}
     if record.get('schema_version') != 1 or type(record.get('enabled')) is not bool:
@@ -88,6 +132,7 @@ def load_feedback_training(policy='cumulative_refit'):
 
 def load_data():
     """返回合法训练和无标签的探索、确认输入；这些文件不含未来服务输入。"""
+    verify_query_inputs('input', _query_binding)
     train=pd.read_csv('input/train.csv');target=train.pop('target').to_numpy()
     return train,target,pd.read_csv('input/validation.csv'),pd.read_csv('input/test.csv')
 
@@ -101,7 +146,7 @@ def _predict_rows(model,frame):
     return np.asarray(values)
 
 
-def _native_probabilities(model, validation, confirmation, contract_path):
+def _native_probabilities(model, validation, confirmation, contract_path, *, confirmation_alias=False):
     """仅采集重载模型的原生概率；不可用时保留硬预测，不生成替代概率。"""
     try:
         contract = json.loads(contract_path.read_bytes())
@@ -125,6 +170,9 @@ def _native_probabilities(model, validation, confirmation, contract_path):
         arrays = {'probability_classes': columns}
         for name, frame in [('validation_probabilities', validation),
                             ('confirmation_probabilities', confirmation)]:
+            if confirmation_alias and name == 'confirmation_probabilities':
+                arrays[name] = arrays['validation_probabilities'].copy()
+                continue
             rows = []
             for i in range(len(frame)):
                 probabilities = np.asarray(model.predict_proba(frame.iloc[[i]]), dtype=float)
@@ -157,22 +205,34 @@ def evaluate_model(model,label='candidate',feedback_gain=.5,feedback_hours=6.):
     raw=cloudpickle.dumps(model);(folder/(stem+'.pkl')).write_bytes(raw)
     # 先保存再重载，确保交付的正是可重新使用的权重，而不是进程内临时对象。
     restored=cloudpickle.loads(raw)
-    before=_predict_rows(restored,validation);confirm=_predict_rows(restored,test)
+    binding = query_access()
+    alias = binding is not None and binding['confirmation_role'] == 'development_alias'
+    before=_predict_rows(restored,validation)
+    confirm=before.copy() if alias else _predict_rows(restored,test)
     classes = training_access().get('parent_capabilities', {}).get('classes', [])
     if classes and (not np.isin(before, classes).all() or not np.isin(confirm, classes).all()):
         raise ValueError('候选预测必须使用任务真实类别；概率列索引须先映射到classes_')
     arrays = {'validation': before, 'confirmation': confirm}
+    if binding is not None:
+        arrays.update(validation_ids=np.asarray(binding['query_ids']['validation.csv']),
+                      confirmation_ids=np.asarray(binding['query_ids']['test.csv']))
     availability = {}
     contract_path = Path('input/probability-contract.json')
     if contract_path.exists():
         # 概率从同一保存权重独立重载，防止硬预测已遍历确认集的状态带回探索。
-        probabilities, availability = _native_probabilities(cloudpickle.loads(raw), validation, test, contract_path)
+        probabilities, availability = _native_probabilities(cloudpickle.loads(raw), validation, test, contract_path,
+                                                           confirmation_alias=alias)
         arrays.update(probabilities)
     np.savez_compressed(folder/(stem+'.npz'), **arrays)
     record={'label':str(label),'weights_sha256':sha256(raw).hexdigest(),
             'feedback':{'gain':float(feedback_gain),'hours':float(feedback_hours)},
             'validation_rows':len(before),'confirmation_rows':len(confirm)}
     record.update(availability)
+    if binding is not None:
+        record.update(confirmation_role=binding['confirmation_role'],
+                      independent_confirmation_enabled=binding['independent_confirmation_enabled'],
+                      query_input_sha256=binding['files'])
+        verify_query_inputs('input', _query_binding)
     (folder/(stem+'.json')).write_text(json.dumps(record,ensure_ascii=False,allow_nan=False),encoding='utf-8')
     print(f'HARNESS_EVALUATION:{stem}',flush=True)
     return stem

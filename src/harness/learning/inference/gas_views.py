@@ -17,13 +17,18 @@ def represent(x, view, mean, scale):
     return (centered / np.maximum(rms, 1e-12)).reshape(-1, 128)
 
 
+def six_class_source(y):
+    """形状修正使用固定六类参照；部分发放时普通父网仍能继续训练。"""
+    return np.array_equal(np.unique(y),np.arange(6))
+
+
 def fit_view(x, y, method, mean, scale):
     view, readout = method.split("-")
     if readout not in ("knn", "lda", "agree", "blend"):
         raise ValueError("未知的气体修正方法")
     train = represent(x, view, mean, scale)
     labels = np.asarray(y, dtype=int)
-    if set(labels) != set(range(6)) or len(labels) != len(train):
+    if not six_class_source(labels) or len(labels) != len(train):
         raise ValueError("修正模型需要六类完整且一致的训练样本")
     model = {"method": method}
     if readout in ("knn", "agree", "blend"):

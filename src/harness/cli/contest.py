@@ -4,7 +4,7 @@ import sys
 def main(argv=None):
     args=list(sys.argv[1:] if argv is None else argv)
     if '--train' in args:
-        from harness.adapters.platforms.platform_train import main as train
+        from harness.contest.training import main as train
         return train(args)
     if '--checkpoint' in args:
         from harness.adapters.platforms.baselines.predict import main as predict

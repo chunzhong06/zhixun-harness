@@ -15,8 +15,8 @@ def flight_views(prep, mean, rows):
 
 
 def fleet_prediction(bundle, mean, rows):
-    from harness.learning.models.flight_load_neighbors import FlightLoadNeighbors
-    from harness.learning.models.flight_range_choice import FlightRangeChoice
+    from harness.learning.models.flight.flight_load_neighbors import FlightLoadNeighbors
+    from harness.learning.models.flight.flight_range_choice import FlightRangeChoice
     if isinstance(bundle, (FlightLoadNeighbors, FlightRangeChoice)):
         return bundle.forecast(rows)
     if isinstance(bundle, dict):

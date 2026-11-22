@@ -1,5 +1,7 @@
 """将现有源码研究驱动接到官方NPZ续训；探索评分与最终发布留在外层。"""
 from hashlib import sha256
+from importlib.metadata import PackageNotFoundError, version
+from functools import lru_cache
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from zipfile import ZipFile
@@ -24,6 +26,20 @@ from harness.adapters.storage.local import atomic_json
 
 ROOT = __import__("harness.paths", fromlist=["workspace_root"]).workspace_root()
 from harness.evaluation.native import measure, exploration_diagnostics
+
+
+@lru_cache(maxsize=1)
+def training_runtime():
+    """跨轮比较要区分训练实现相同、数值依赖版本不同的镜像。"""
+    packages = {}
+    for name in ('numpy', 'scipy', 'scikit-learn', 'torch', 'tabpfn', 'tabm'):
+        try:
+            packages[name] = version(name)
+        except PackageNotFoundError:
+            packages[name] = None
+    return [sys.version, sys.platform, packages]
+
+
 class NativeExecutor:
     """沿用free_research_driver记录与提名协议；原始训练输入只读共享。"""
 
@@ -40,7 +56,7 @@ class NativeExecutor:
         self.cache_dir = Path(cache_dir) if cache_dir is not None else None
         self.cacheable_sources = {sha256(code.encode()).hexdigest() for code in cacheable_sources}
 
-    def _cache_key(self, source):
+    def reference_key(self, source):
         """只复用已登记的确定性参考程序；自由随机程序继续真实执行。"""
         source_sha = sha256(source.encode()).hexdigest()
         if self.cache_dir is None or source_sha not in self.cacheable_sources:
@@ -56,12 +72,15 @@ class NativeExecutor:
         if resource and sha256(Path(resource['checkpoint']).read_bytes()).hexdigest() != resource['sha256']:
             raise ValueError('共享教师资产已变化，不能复用候选')
         code = package_sources()
-        return digest({'schema': 1, 'source_sha256': source_sha, 'parent_sha256': self.parent_sha,
+        # SDK 按容器配额选择教师线程数；切换数值配置时重做测量。
+        return digest({'schema': 3, 'source_sha256': source_sha, 'parent_sha256': self.parent_sha,
                        'profile': task['profile'], 'archive_sha256': task['archive_sha256'],
                        'inputs_sha256': task['inputs_sha256'], 'max_epochs': self.max_epochs,
-                       'tabular_resource': resource,
+                       'data_identity': task.get('data_identity'),
+                       'tabular_resource': {k:v for k,v in resource.items() if k != 'checkpoint'} if resource else None,
                        'evaluation_identity': digest({k: self.oracle[k] for k in ('explore', 'adopt')}),
-                       'runtime': [sys.version, np.__version__], 'code': file_identity(code)})
+                       'runtime': training_runtime(), 'teacher_threads': os.environ.get('ZHIXUN_SDK_PREDICT_THREADS'),
+                       'code': file_identity(code)})
 
     def seed_parent(self, predictions):
         """父版是已存在的保持选项，明确记作零次新训练，不伪装成候选实验。"""
@@ -109,7 +128,7 @@ class NativeExecutor:
         program = folder / 'training-program.py'
         program.write_text(source, encoding='utf-8')
         lookup_started = time.monotonic()
-        cache_key = self._cache_key(source)
+        cache_key = self.reference_key(source)
         cached = self.cache_dir / (cache_key + '.json') if cache_key is not None else None
         if cached is not None and cached.exists():
             pointer = json.loads(cached.read_bytes())
@@ -140,12 +159,28 @@ class NativeExecutor:
             '--task-dir', str(self.task_dir), '--parent', str(self.parent), '--expected-parent-sha256', self.parent_sha,
             '--program', str(program), '--output', str(destination), '--max-epochs', str(self.max_epochs),
             '--stage-id', self.folder.parent.name + '-trial-' + str(sequence)]
-        try:
-            process = subprocess.run(command, cwd=self.task_dir, env=env, capture_output=True, text=True,
-                                     encoding='utf-8', timeout=min(exec_timeout, self.timeout))
-            result = {'returncode': process.returncode, 'stdout': process.stdout, 'stderr': process.stderr}
-        except subprocess.TimeoutExpired:
-            result = {'returncode': 1, 'stdout': '', 'stderr': '续训源码超过本次CPU时间上限'}
+        if self.task in ('gas','bearing'):
+            command.extend(['--teacher-cache', str(self.task_dir.parent / '.frozen-teacher')])
+        from harness.contest.round_budget import current
+        budget = current.get()
+        cap = min(exec_timeout,self.timeout)
+        if budget:
+            cap = budget.allowance(cap)
+            budget.marker('start_worker' if cap else 'skip_worker')
+        if not cap:
+            result = {'returncode':1,'stdout':'','stderr':'已预留选案和交接时间，本候选未启动',
+                      'launched_training_worker':False}
+        else:
+            try:
+                process = subprocess.run(command, cwd=self.task_dir, env=env, capture_output=True, text=True,
+                                         encoding='utf-8', timeout=cap)
+                result = {'returncode': process.returncode, 'stdout': process.stdout, 'stderr': process.stderr}
+                if budget and process.returncode == 0:
+                    budget.observe('worker',time.monotonic()-started)
+            except subprocess.TimeoutExpired:
+                result = {'returncode': 1, 'stdout': '', 'stderr': '续训源码超过本次CPU时间上限'}
+                if budget:
+                    budget.marker('worker_timeout')
         result['execution_time'] = time.monotonic() - started
         candidates = []
         if result['returncode'] == 0:

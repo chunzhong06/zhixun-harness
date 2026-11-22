@@ -10,6 +10,8 @@ import zipfile
 from hashlib import sha256
 import numpy as np
 
+MAX_TEACHER_BYTES = 64 * 1024**2
+
 CODEBOOK=np.asarray([-1.,-.6961928009986877,-.5250730514526367,-.39491748809814453,
     -.28444138169288635,-.18477343022823334,-.09105003625154495,0.,.07958029955625534,
     .16093020141124725,.24611230194568634,.33791524171829224,.44070982933044434,
@@ -35,7 +37,9 @@ def restore_teacher(payload,destination):
     """发布中存储压缩字节；只在任务临时目录生成作者加载所需文件。"""
     from safetensors.numpy import save_file
     raw=np.asarray(payload)
-    if raw.dtype!=np.uint8 or raw.ndim!=1 or len(raw)>54*1024**2:
+    # 单个资产不可能大于完整产物上限；实际父网、上下文和依赖总量由发布端另核。
+    # 旧54MiB只是气体版本的内部留量，不能替代比赛64MiB完整产物要求。
+    if raw.dtype!=np.uint8 or raw.ndim!=1 or len(raw)>MAX_TEACHER_BYTES:
         raise ValueError('教师存储字节无效或超出资产预算')
     packed=raw.tobytes()
     with zipfile.ZipFile(io.BytesIO(packed)) as archive:

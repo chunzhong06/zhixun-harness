@@ -157,7 +157,51 @@ def install_runtime_assets(manifest=None):
 
 def guard_asset_mutation(assets, event, args):
     """补充只读资源的元数据/目录保护；普通输入输出仍由现有边界约束。"""
-    if event in {'os.remove', 'os.rmdir', 'shutil.rmtree', 'os.rename', 'os.mkdir', 'os.chmod', 'os.utime'}:
-        for value in args[:2] if event == 'os.rename' else args[:1]:
+    if event in {'os.remove', 'os.rmdir', 'shutil.rmtree', 'os.rename', 'os.mkdir', 'os.chmod', 'os.utime', 'os.link', 'os.symlink', 'os.truncate'}:
+        for value in args[:2] if event in {'os.rename', 'os.link', 'os.symlink'} else args[:1]:
             if isinstance(value, (str, bytes, os.PathLike)) and assets.allows_read(os.fsdecode(value)):
                 raise PermissionError('声明的运行资源只允许读取')
+
+
+def guard_directory_read(assets, readable, event, args):
+    """目录名字也是输入；精确文件授权不顺便开放其父目录。"""
+    if event not in {'os.listdir', 'os.scandir', 'os.walk'}:
+        return
+    value = args[0] if args else None
+    if value is None:
+        value = os.curdir
+    if not isinstance(value, (str, bytes, os.PathLike)):
+        raise PermissionError('目录枚举需要可核对的路径')
+    path = Path(os.fsdecode(value)).resolve()
+    if not (assets.allows_read(path) or any(path.is_relative_to(root) for root in readable)):
+        raise PermissionError('任务程序不能枚举外层评价或其他任务目录')
+
+
+def limit_python_paths(assets, readable):
+    """导入扫描也只搜索已授权目录，避免metadata遍历无权读取的项目根。"""
+    retained = []
+    for value in sys.path:
+        path = Path(value or os.curdir).resolve()
+        if assets.allows_read(path) or any(path.is_relative_to(root) for root in readable):
+            retained.append(value)
+    sys.path[:] = retained
+
+
+def guard_query_input_mutation(root, event, args):
+    """新数组契约的整个input只读；旧SDK无此绑定时保持原行为。"""
+    if root is None:
+        return
+    root = Path(root).resolve()
+    values = []
+    if event == 'open' and args:
+        mode = args[1] if len(args) > 1 else None
+        flags = args[2] if len(args) > 2 else 0
+        writing = ((isinstance(mode, str) and any(x in mode for x in 'wax+'))
+                   or (isinstance(flags, int) and bool(flags & (os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC))))
+        if writing:
+            values = args[:1]
+    elif event in {'os.remove', 'os.rmdir', 'shutil.rmtree', 'os.rename', 'os.mkdir', 'os.chmod', 'os.utime', 'os.link', 'os.symlink', 'os.truncate'}:
+        values = args[:2] if event in {'os.rename', 'os.link', 'os.symlink'} else args[:1]
+    for value in values:
+        if isinstance(value, (str, bytes, os.PathLike)) and Path(os.fsdecode(value)).resolve().is_relative_to(root):
+            raise PermissionError('原任务输入和查询契约只读，结果请写入artifacts')
