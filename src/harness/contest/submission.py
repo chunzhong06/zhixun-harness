@@ -1,7 +1,7 @@
 """workspace.v2边界：平台身份、测量和选择为准，训练复用既有内核。"""
 import asyncio
 import errno
-from hashlib import sha256
+from hashlib import file_digest, sha256
 import json
 import math
 import os
@@ -82,14 +82,33 @@ def _limit(name, default, low, high):
     return value
 
 
-def _training_enabled(profile, round_index):
-    """显式轮次仍受尊重。C 默认根据本轮预算和已确认的发放状态判断。"""
+def _training_enabled(rnd, restored):
+    """A 前两轮照常，随后在当前父模型尚未试过的训练发放上恢复候选比较。"""
+    profile, round_index = rnd.dataset_key, rnd.round_index
     if profile not in ("A", "C"):
         return True
     name = {"A": "HARNESS_A_TRAIN_ROUNDS", "C": "HARNESS_C_TRAIN_ROUNDS"}[profile]
-    if profile == "C" and name not in os.environ:
+    if name not in os.environ:
+        if profile == "C" or round_index <= 2:
+            return True
+        history_file = restored / "history-A.json"
+        if not history_file.is_file():
+            return True
+        parent = rnd.parent.checkpoint_sha256.removeprefix("sha256:")
+        with Path(rnd.data.train_path).open("rb") as stream:
+            train_sha = "sha256:" + file_digest(stream, "sha256").hexdigest()
+        for event in json.loads(history_file.read_bytes()).get("events", []):
+            if event.get("error") or (event.get("data_identity") or {}).get("train_sha256") != train_sha:
+                continue
+            selected_program = (event.get("selected") or {}).get("source_sha256")
+            # 历史回退也会带 published_sha256；只有本轮真正产出的模型才继承这次训练记录。
+            if selected_program and event.get("published_sha256") == parent:
+                return False
+            tested = event.get("gas_candidate_tested") or selected_program or event.get("reference_observation")
+            if tested and event.get("actual_parent_sha256") == parent:
+                return False
         return True
-    raw = os.environ.get(name, "1,2")
+    raw = os.environ[name]
     try:
         rounds = {int(value.strip()) for value in raw.split(",") if value.strip()}
     except ValueError as exc:
@@ -97,6 +116,17 @@ def _training_enabled(profile, round_index):
     if not rounds or any(not 1 <= value <= 10 for value in rounds):
         raise ValueError(name + " 只能包含 1 至 10")
     return round_index in rounds
+
+
+def _gas_recovery_veto(rnd, report):
+    """只在新增的 A 后段训练机会审查同批正确数；首两轮及显式轮号按原规则提名。"""
+    if rnd.dataset_key != "A" or rnd.round_index <= 2 or "HARNESS_A_TRAIN_ROUNDS" in os.environ:
+        return False
+    before = (report.get("validation_before") or {}).get("accuracy")
+    after = (report.get("validation_after") or {}).get("accuracy")
+    # 准确率来自同一次运行的两份本地反馈预测；缺少该指标时保留 SDK 原来的比较。
+    return (type(before) in (float,int) and type(after) in (float,int)
+            and 0 <= after <= before <= 1)
 
 
 def _choose(rnd, choices, history, configuration):
@@ -233,7 +263,7 @@ def _train_timed(rnd,budget):
     release = work/'native-release'
     checkpoint = release/'checkpoint.npz'
     try:
-        if not _training_enabled(rnd.dataset_key, rnd.round_index):
+        if not _training_enabled(rnd, restored):
             raise CloseResearch('训练策略：本轮默认保留父模型，仅完成选案、状态保存和交接')
         if not budget.allowance(_limit('HARNESS_PROGRAM_SECONDS',1800,1,3600)):
             raise CloseResearch('进入父版准备前已达到收尾窗口')
@@ -256,10 +286,17 @@ def _train_timed(rnd,budget):
     change = f"真实执行{report['executed_parent_epochs']}个父训练轮次；本地选中检查点{digest}。"
     choices = [{'artifact_id': rnd.parent.artifact_id, 'role': 'parent',
                 'summary': rnd.parent.receipt.get('summary', {}), 'checkpoint_sha256': parent_digest}]
-    if digest != parent_digest and budget.can_publish():
+    nominate = digest != parent_digest
+    if nominate and _gas_recovery_veto(rnd, report):
+        nominate = False
+        configuration['gas_recovery_review'] = dict(reason='no_net_correct_gain',
+                parent_accuracy=report['validation_before']['accuracy'],
+                candidate_accuracy=report['validation_after']['accuracy'])
+        budget.marker('gas_recovery_retained_parent')
+    if nominate and budget.can_publish():
         packed = pack_candidate(checkpoint, work/'candidate', parent_sha256=parent_digest,
             training_report={k: report[k] for k in ('initial_steps', 'final_steps', 'executed_parent_epochs')})
-    if digest != parent_digest and budget.can_publish() and (work/'candidate').is_dir():
+    if nominate and budget.can_publish() and (work/'candidate').is_dir():
         budget.marker('submit_candidate')
         submit_started = budget.clock()
         reply = rnd.submit_candidate(work/'candidate', hypothesis=hypothesis, change_summary=change,
@@ -269,7 +306,7 @@ def _train_timed(rnd,budget):
         choices.append({'artifact_id': reply['artifact_id'], 'role': 'new_candidate',
                         'summary': reply.get('summary', {}), 'checkpoint_sha256': digest})
         atomic_json(work/'candidate-receipt.json', reply)
-    elif digest != parent_digest:
+    elif nominate:
         budget.marker('trained_candidate_not_submitted')
     for item in rnd.artifacts:
         if item['artifact_id'] not in {choice['artifact_id'] for choice in choices} and budget.can_restore(item):
@@ -295,12 +332,16 @@ def _train_timed(rnd,budget):
         compact.append({k: event.get(k) for k in ('stage', 'accepted', 'error', 'platform_stage_id',
             'data_identity', 'selection', 'published_sha256', 'round_id', 'actual_parent_sha256', 'reference_observation')})
         compact[-1]['selected'] = {k: (event.get('selected') or {}).get(k) for k in ('score', 'source_sha256')}
+        if event.get('gas_candidate_tested'):
+            compact[-1]['gas_candidate_tested'] = True
     if compact:
         from .round_report import carry_recent_trial_feedback
         carry_recent_trial_feedback(compact, events, report, selected)
         compact[-1].update(accepted=selected_id != rnd.parent.artifact_id,
                            published_sha256=selected['checkpoint_sha256'],
                            platform_artifact_id=selected_id, selection=None)
+        if rnd.dataset_key == 'A' and report.get('successful_training_candidates',0) > 0:
+            compact[-1]['gas_candidate_tested'] = True
         if selected['checkpoint_sha256'] != digest:
             # 平台最后选择可能保父或回退；本地候选成绩不能冒充实际选中模型的成绩。
             compact[-1]['selected'] = {'score': None, 'source_sha256': None}

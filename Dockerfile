@@ -1,4 +1,4 @@
-ARG BASE=zhixun-harness:sdk-0.3.0-gzip@sha256:433dd83e13fd9f64e111a1119c3509faff79ee14f0e8566a5b15daf2282f63f3
+ARG BASE=zhixun-harness:sdk-0.3.1-gzip@sha256:f89abf3cad4a21c91e77d50a3ec00826a96fde40b7192b3c1b19b9a1846cd57e
 FROM ${BASE}
 WORKDIR /app
 # 父层提供官方 SDK、CPU 依赖和量化权重。业务代码完整取自本次检出。
@@ -13,4 +13,4 @@ RUN --mount=type=bind,target=/input \
     && python3 -m pip install --no-deps --no-build-isolation --no-index --no-compile --no-cache-dir --force-reinstall /app \
     && rm -rf /app/build /app/src/zhixun_harness.egg-info \
     && python3 -B /opt/verify_training_runtime.py
-LABEL org.opencontainers.image.version="0.3.1"
+LABEL org.opencontainers.image.version="0.3.2"

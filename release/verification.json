@@ -1,8 +1,8 @@
 {
-  "version": "0.3.1",
+  "version": "0.3.2",
   "sdk": "1.0.4",
-  "archive_sha256": "d130cb985cb3e3bdbd27e123a470c40dc2cc0cf1ae2a3ed61ebed69ec132c41d",
-  "manifest_digest": "sha256:f89abf3cad4a21c91e77d50a3ec00826a96fde40b7192b3c1b19b9a1846cd57e",
+  "archive_sha256": "c24215d6a4c6ae98237033b8043a98b6e68185eafac7e3c70927bcf88ab5729e",
+  "manifest_digest": "sha256:279abfa33f46aaebd9095a9caa7413a5e8a0a2491bc3c3d5acbd6fdc11f3e554",
   "source_files_verified": 399,
   "source_rebuild_public_probes": [
     {
@@ -25,37 +25,243 @@
       "above_235": 5
     }
   ],
-  "scope": "本地实际SDK、公开阶段留出与历史研究程序回放，官方任务函数复算终选；0.2.32平台总分由队伍提供。",
+  "official_metric": "公开任务包 baselines.train.metrics",
   "resources": {
     "cpus": 4,
     "memory_gib": 4,
-    "round_seconds": {
-      "A": 1800,
-      "B": 1800,
-      "C": 600
-    },
-    "feedback_rows": {
-      "A": 128,
-      "B": 128,
-      "C": 512
-    }
+    "round_seconds": 1800,
+    "feedback_rows": 128
   },
-  "official_metric": "公开赛题包的 baselines.train.metrics",
   "website_trials": 0,
   "real_gateway_requests": 0,
   "last_reported_official": {
     "version": "0.2.32",
     "total": 62.89
   },
-  "tasks": {
-    "A": {
-      "full_public_rows": 1244,
-      "final_metrics": {
+  "scope": "A 同一公开发放与历史程序回放，B、C 仅核对源码重建后的官方起点预测。",
+  "gas": {
+    "full": {
+      "accuracy": 0.977491961414791,
+      "macro_f1": 0.9464158260414943
+    },
+    "stages": [
+      0.0,
+      0.0,
+      0.0,
+      0.6535338345864667,
+      0.8710317460317458,
+      1.0,
+      0.7826353421859041,
+      0.8363636363636364
+    ],
+    "mean_gain": 0.5179455698959692,
+    "worst_gain": 0.0,
+    "ten_round_seconds": 333.1594213000062,
+    "peak_round_seconds": 60.259924000001774,
+    "invocation_seconds": 549.4188493000001,
+    "selected_sha": "86e745da8ab5958dcca1e36e206bf077a512684e887dcc1d745b9f84d907dae4",
+    "rounds": [
+      {
+        "round": 1,
+        "parent_id": "official-A",
+        "selected_id": "official-A",
+        "training_candidates": 2,
+        "training_status": "trained_not_adopted",
+        "seconds": 47.12536850000106
+      },
+      {
+        "round": 2,
+        "parent_id": "official-A",
+        "selected_id": "official-A",
+        "training_candidates": 1,
+        "training_status": "trained_not_adopted",
+        "seconds": 29.86450540000078
+      },
+      {
+        "round": 3,
+        "parent_id": "official-A",
+        "selected_id": "official-A",
+        "training_candidates": 2,
+        "training_status": "adopted",
+        "seconds": 35.731815999999526
+      },
+      {
+        "round": 4,
+        "parent_id": "official-A",
+        "selected_id": "official-A",
+        "training_candidates": 0,
+        "training_status": "budget_retained_parent",
+        "seconds": 10.616944599998533
+      },
+      {
+        "round": 5,
+        "parent_id": "official-A",
+        "selected_id": "candidate-A-5",
+        "training_candidates": 2,
+        "training_status": "adopted",
+        "seconds": 60.259924000001774
+      },
+      {
+        "round": 6,
+        "parent_id": "candidate-A-5",
+        "selected_id": "candidate-A-5",
+        "training_candidates": 0,
+        "training_status": "budget_retained_parent",
+        "seconds": 29.855164599997806
+      },
+      {
+        "round": 7,
+        "parent_id": "candidate-A-5",
+        "selected_id": "candidate-A-5",
+        "training_candidates": 0,
+        "training_status": "budget_retained_parent",
+        "seconds": 29.465394300001208
+      },
+      {
+        "round": 8,
+        "parent_id": "candidate-A-5",
+        "selected_id": "candidate-A-5",
+        "training_candidates": 0,
+        "training_status": "budget_retained_parent",
+        "seconds": 29.731537300001946
+      },
+      {
+        "round": 9,
+        "parent_id": "candidate-A-5",
+        "selected_id": "candidate-A-5",
+        "training_candidates": 0,
+        "training_status": "budget_retained_parent",
+        "seconds": 29.98746850000316
+      },
+      {
+        "round": 10,
+        "parent_id": "candidate-A-5",
+        "selected_id": "candidate-A-5",
+        "training_candidates": 0,
+        "training_status": "budget_retained_parent",
+        "seconds": 30.521298100000422
+      }
+    ]
+  },
+  "issuance": {
+    "archive": "7a992b92d92c807869c3eccf25b3bf82dcdeba9174e161d6e8b61d82c3ec8851",
+    "schedule": {
+      "2": 0,
+      "3": 1,
+      "4": 2,
+      "5": 3,
+      "7": 4,
+      "8": 5,
+      "9": 6,
+      "10": 7
+    },
+    "train_percent": [
+      70,
+      70,
+      85,
+      85,
+      100,
+      100,
+      100,
+      100,
+      100,
+      100
+    ],
+    "feedback_percent": [
+      70,
+      70,
+      85,
+      85,
+      100,
+      100,
+      100,
+      100,
+      100,
+      100
+    ],
+    "stage_rows": [
+      43,
+      41,
+      41,
+      41,
+      39,
+      38,
+      38,
+      38
+    ],
+    "unique_heldout_rows": 313,
+    "stage_sha256": [
+      "dfd286d7918dcbefb023754c14c42aa873af60f3a8ddf8a6c2e20c96a013a438",
+      "616e6ebb18335d515de40d10caaa88ce112278e6a3493f906bd9799c11da8970",
+      "57d1e5d278d90caaf45ac0568fa0131a259d999981ecf5b8ac9af2cf57379bab",
+      "0cad50758ccde135fb51646787642ee32471cd2c8ac37145145e00a33165bbdf",
+      "73cbac249badeacfa3d1ad787722f519795fdafe8632056c9d7e48e3f8f66674",
+      "96dc25aa9b740234e9a188a2e57a118f986310c1902dd8c8bc0c49b2c827f307",
+      "e30450a4081de88f447101c83266ca470f0c33c841fbe67de983042e65727826",
+      "8ba5894f9e5c7681dec7688def6acda64e906e5a551e0716f1b7796abfff33fc"
+    ],
+    "feedback_limit": 128,
+    "rounds": [
+      {
+        "initial/checkpoint.npz": "fd1e08b2aad08b2e9754f9b2dfdc029481c0da7ecdedca0abb0ec6fcc818c757",
+        "data/train.jsonl": "a56f6ada2531fd2af2bf0c98d81a87a46367c06af009f3de7a2691851d189b79",
+        "data/validation.jsonl": "578d3f701ca9fdcbf31c6dc75ac64279da1bc0aec8f8d05e907eb9b2dfda9fba"
+      },
+      {
+        "initial/checkpoint.npz": "fd1e08b2aad08b2e9754f9b2dfdc029481c0da7ecdedca0abb0ec6fcc818c757",
+        "data/train.jsonl": "a56f6ada2531fd2af2bf0c98d81a87a46367c06af009f3de7a2691851d189b79",
+        "data/validation.jsonl": "578d3f701ca9fdcbf31c6dc75ac64279da1bc0aec8f8d05e907eb9b2dfda9fba"
+      },
+      {
+        "initial/checkpoint.npz": "fd1e08b2aad08b2e9754f9b2dfdc029481c0da7ecdedca0abb0ec6fcc818c757",
+        "data/train.jsonl": "50d4fc839f778d5dfce9bd813c3431ee92958c1ddb9c0dffadc8d883b2c18cd9",
+        "data/validation.jsonl": "e7dad455893ae0a86e3f1724d431499a68b5c57078a398b2af0fef301de55241"
+      },
+      {
+        "initial/checkpoint.npz": "fd1e08b2aad08b2e9754f9b2dfdc029481c0da7ecdedca0abb0ec6fcc818c757",
+        "data/train.jsonl": "50d4fc839f778d5dfce9bd813c3431ee92958c1ddb9c0dffadc8d883b2c18cd9",
+        "data/validation.jsonl": "e7dad455893ae0a86e3f1724d431499a68b5c57078a398b2af0fef301de55241"
+      },
+      {
+        "initial/checkpoint.npz": "fd1e08b2aad08b2e9754f9b2dfdc029481c0da7ecdedca0abb0ec6fcc818c757",
+        "data/train.jsonl": "d45b24751d332562cf53903443955d4d8a1f8edf080c508acbfe3b8e370da0e3",
+        "data/validation.jsonl": "a21f23029f2038a06c285bc31fcc213dbda26f23f6a06e674261210d608f582c"
+      },
+      {
+        "initial/checkpoint.npz": "fd1e08b2aad08b2e9754f9b2dfdc029481c0da7ecdedca0abb0ec6fcc818c757",
+        "data/train.jsonl": "d45b24751d332562cf53903443955d4d8a1f8edf080c508acbfe3b8e370da0e3",
+        "data/validation.jsonl": "a21f23029f2038a06c285bc31fcc213dbda26f23f6a06e674261210d608f582c"
+      },
+      {
+        "initial/checkpoint.npz": "fd1e08b2aad08b2e9754f9b2dfdc029481c0da7ecdedca0abb0ec6fcc818c757",
+        "data/train.jsonl": "d45b24751d332562cf53903443955d4d8a1f8edf080c508acbfe3b8e370da0e3",
+        "data/validation.jsonl": "a21f23029f2038a06c285bc31fcc213dbda26f23f6a06e674261210d608f582c"
+      },
+      {
+        "initial/checkpoint.npz": "fd1e08b2aad08b2e9754f9b2dfdc029481c0da7ecdedca0abb0ec6fcc818c757",
+        "data/train.jsonl": "d45b24751d332562cf53903443955d4d8a1f8edf080c508acbfe3b8e370da0e3",
+        "data/validation.jsonl": "a21f23029f2038a06c285bc31fcc213dbda26f23f6a06e674261210d608f582c"
+      },
+      {
+        "initial/checkpoint.npz": "fd1e08b2aad08b2e9754f9b2dfdc029481c0da7ecdedca0abb0ec6fcc818c757",
+        "data/train.jsonl": "d45b24751d332562cf53903443955d4d8a1f8edf080c508acbfe3b8e370da0e3",
+        "data/validation.jsonl": "a21f23029f2038a06c285bc31fcc213dbda26f23f6a06e674261210d608f582c"
+      },
+      {
+        "initial/checkpoint.npz": "fd1e08b2aad08b2e9754f9b2dfdc029481c0da7ecdedca0abb0ec6fcc818c757",
+        "data/train.jsonl": "d45b24751d332562cf53903443955d4d8a1f8edf080c508acbfe3b8e370da0e3",
+        "data/validation.jsonl": "a21f23029f2038a06c285bc31fcc213dbda26f23f6a06e674261210d608f582c"
+      }
+    ]
+  },
+  "description": "阶段评分组与当轮决策反馈行隔离。气体稀有类别在评分组间复用。三种方案逐轮采用各自实际选中的模型，按全程各阶段与真实耗时比较。",
+  "comparison": {
+    "0.3.1": {
+      "full": {
         "accuracy": 0.8786173633440515,
         "macro_f1": 0.7140297220788709
       },
-      "rounds": 10,
-      "stage_gains": [
+      "stages": [
         0.0,
         0.0,
         0.0,
@@ -65,100 +271,122 @@
         0.0,
         0.0
       ],
-      "stage_mean_gain": 0.0,
-      "stage_worst_gain": 0.0,
-      "ten_round_seconds": 217.57855740000014,
-      "peak_round_seconds": 64.8686159000008,
-      "adopted_rounds": [],
-      "gateway_replay_calls": 12,
-      "selected_sha256": "fd1e08b2aad08b2e9754f9b2dfdc029481c0da7ecdedca0abb0ec6fcc818c757",
-      "task_wall_seconds_with_scoring": 529.6341862678528
+      "ten_round_seconds": 217.57855740000014
     },
-    "B": {
-      "full_public_rows": 1679,
-      "final_metrics": {
-        "mae": 220.2722657613338,
-        "rmse": 280.0495680350682
+    "只恢复训练": {
+      "full": {
+        "accuracy": 0.8762057877813505,
+        "macro_f1": 0.6946463235177358
       },
-      "rounds": 10,
-      "stage_gains": [
-        -0.6713077761380701,
-        0.49319573697608465,
-        0.6159686294934477
+      "stages": [
+        0.0,
+        -0.20689655172413762,
+        -0.28369905956112795,
+        0.16631578947368408,
+        -0.17619047619047606,
+        -0.1818181818181821,
+        0.20299625468164845,
+        0.18181818181818138
       ],
-      "stage_mean_gain": 0.14595219677715407,
-      "stage_worst_gain": -0.6713077761380701,
-      "ten_round_seconds": 2031.1747182000017,
-      "peak_round_seconds": 306.9155819000007,
-      "adopted_rounds": [
-        1,
-        2,
-        5,
-        7
-      ],
-      "gateway_replay_calls": 30,
-      "selected_sha256": "393fd1c78364a5717e0e56f2ac345a9f4032ad192a991f7570f600908ccd2bc2",
-      "task_wall_seconds_with_scoring": 2400.7484891000004
-    },
-    "C": {
-      "full_public_rows": 23049,
-      "final_metrics": {
-        "mae": 32.46832391103882,
-        "rmse": 46.37674447149479,
-        "nasa": 754425652.6171579
-      },
-      "rounds": 10,
-      "stage_gains": [
-        0.10518703466162171,
-        0.04021544723392334,
-        0.11444872523380267,
-        0.14259620507238424
-      ],
-      "stage_mean_gain": 0.10061185305043299,
-      "stage_worst_gain": 0.04021544723392334,
-      "ten_round_seconds": 553.8897959999986,
-      "peak_round_seconds": 72.04606880000028,
-      "adopted_rounds": [
-        1,
-        2,
-        4,
-        5,
-        6,
-        7,
-        8,
-        9
-      ],
-      "gateway_replay_calls": 28,
-      "selected_sha256": "fb2d044ea5e9ad484aeeee610cd0a7d22ef7676dd3d5825eec9398d668fd8a05",
-      "task_wall_seconds_with_scoring": 771.2789787000002
+      "mean_gain": -0.03718425541505123,
+      "worst_gain": -0.28369905956112795,
+      "ten_round_seconds": 407.1841839999943,
+      "peak_round_seconds": 84.62266649999947,
+      "selected_sha": "f7a0ccc4bb1dd11d8826cc716080550cb899a47003d691d1e8f8f8ca817c8847",
+      "rounds": [
+        {
+          "round": 1,
+          "parent_id": "official-A",
+          "selected_id": "official-A",
+          "training_candidates": 2,
+          "training_status": "trained_not_adopted",
+          "seconds": 47.738248500001646
+        },
+        {
+          "round": 2,
+          "parent_id": "official-A",
+          "selected_id": "official-A",
+          "training_candidates": 1,
+          "training_status": "trained_not_adopted",
+          "seconds": 34.06161119999888
+        },
+        {
+          "round": 3,
+          "parent_id": "official-A",
+          "selected_id": "candidate-A-3",
+          "training_candidates": 2,
+          "training_status": "adopted",
+          "seconds": 60.5100618999968
+        },
+        {
+          "round": 4,
+          "parent_id": "candidate-A-3",
+          "selected_id": "candidate-A-3",
+          "training_candidates": 0,
+          "training_status": "budget_retained_parent",
+          "seconds": 29.81866209999862
+        },
+        {
+          "round": 5,
+          "parent_id": "candidate-A-3",
+          "selected_id": "candidate-A-3",
+          "training_candidates": 2,
+          "training_status": "trained_not_adopted",
+          "seconds": 84.62266649999947
+        },
+        {
+          "round": 6,
+          "parent_id": "candidate-A-3",
+          "selected_id": "candidate-A-3",
+          "training_candidates": 0,
+          "training_status": "budget_retained_parent",
+          "seconds": 29.27827050000269
+        },
+        {
+          "round": 7,
+          "parent_id": "candidate-A-3",
+          "selected_id": "candidate-A-3",
+          "training_candidates": 0,
+          "training_status": "budget_retained_parent",
+          "seconds": 29.291338499999256
+        },
+        {
+          "round": 8,
+          "parent_id": "candidate-A-3",
+          "selected_id": "candidate-A-3",
+          "training_candidates": 0,
+          "training_status": "budget_retained_parent",
+          "seconds": 32.13574510000035
+        },
+        {
+          "round": 9,
+          "parent_id": "candidate-A-3",
+          "selected_id": "candidate-A-3",
+          "training_candidates": 0,
+          "training_status": "budget_retained_parent",
+          "seconds": 29.77536059999693
+        },
+        {
+          "round": 10,
+          "parent_id": "candidate-A-3",
+          "selected_id": "candidate-A-3",
+          "training_candidates": 0,
+          "training_status": "budget_retained_parent",
+          "seconds": 29.95221909999964
+        }
+      ]
     }
   },
-  "ten_round_seconds_sum": 2802.6430716000004,
-  "suite_start_utc": "2026-11-22T07:51:14.565094+00:00",
-  "suite_end_utc": "2026-11-22T08:53:05.894413+00:00",
-  "suite_wall_seconds": 3711.329319,
-  "successful_invocation_seconds": 25.663929299998927,
-  "timing": "三项十轮合计只加已接受轮次。整场从首个作业启动至最后的独立全量评分和结果落盘，包括阶段复测和可能的恢复间隔。",
-  "c_initial": {
-    "rmse": 52.86857256611151,
-    "mae": 38.89982982666355
-  },
-  "c_initial_changed_by_former_cap": 480,
-  "b_device_rmse": {
-    "Bearing1_4": {
-      "本版终选": 381.2997555380815,
-      "uniform1147": 285.72753472683365,
-      "full7032": 307.85686227644015
+  "known_external_batches": {
+    "batch-8": {
+      "rows": 294,
+      "official": 0.2664109121909633,
+      "trained": 0.3030695077741057
     },
-    "Bearing2_4": {
-      "本版终选": 208.40795794349796,
-      "uniform1147": 112.64305537451904,
-      "full7032": 105.6456156282406
-    },
-    "Bearing3_4": {
-      "本版终选": 272.0396832188293,
-      "uniform1147": 408.6937547883583,
-      "full7032": 405.52240002761175
+    "batch-9": {
+      "rows": 470,
+      "official": 0.1851632882882883,
+      "trained": 0.38274756273736216
     }
   }
 }
