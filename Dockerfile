@@ -12,6 +12,6 @@ RUN --mount=type=bind,target=/input \
     && ln -s /app/src/harness /usr/local/lib/python3.13/site-packages/harness \
     && ln -s /app/src/harness /app/harness \
     && python3 -B /opt/verify_training_runtime.py
-ARG VERSION=0.3.15
+ARG VERSION=0.3.16
 LABEL org.opencontainers.image.version=${VERSION}
 ENTRYPOINT ["python3","-B","/app/harness.py"]

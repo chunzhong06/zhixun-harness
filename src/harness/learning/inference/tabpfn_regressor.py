@@ -46,6 +46,29 @@ def _valid_sha256(value):
     return isinstance(value, str) and len(value) == 64 and all(c in '0123456789abcdef' for c in value)
 
 
+class _FrozenTargetGrid:
+    """只复用一个已拟合目标变换在固定区间边界上的逆变换。"""
+
+    def __init__(self, transform, borders):
+        self.transformer = transform
+        self.grid = borders.reshape(-1, 1).astype(np.float64)
+        self.inverse = transform.inverse_transform(self.grid.copy()).copy()
+
+    def inverse_transform(self, values):
+        if values.dtype == self.grid.dtype and np.array_equal(values, self.grid):
+            return self.inverse.copy()
+        return self.transformer.inverse_transform(values)
+
+
+def _prepare_target_grids(teacher):
+    borders = teacher.znorm_space_bardist_.borders.cpu().numpy()
+    for member in teacher.executor_.ensemble_members:
+        config = member.config
+        if config.target_transform is not None and not isinstance(config.target_transform, _FrozenTargetGrid):
+            grid = -borders[::-1] if config.flip_target else borders
+            config.target_transform = _FrozenTargetGrid(config.target_transform, grid)
+
+
 class TabPFNRegressorModel(TabICLReadoutModel):
     """继承回归组合的真实父梯度，单独核验资源、装载及教师缓存边界。"""
 
@@ -178,6 +201,14 @@ class TabPFNRegressorModel(TabICLReadoutModel):
                     raise ValueError('回归教师展开内容摘要不符')
                 prepared = load(self.teacher_state,package,path)
                 if prepared is not None:
+                    # 恢复的 CPU 教师只作预测。一次确定网络为 float32，后续查询沿用
+                    # 作者执行器默认的 float32 路径，避免逐行遍历全部参数再次转换。
+                    executor = prepared.executor_
+                    if executor.force_inference_dtype == torch.float32 and list(executor.get_devices()) == [torch.device('cpu')]:
+                        for cache in executor.model_caches:
+                            cache.set_dtype(torch.float32)
+                        executor.force_inference_dtype = None
+                    _prepare_target_grids(prepared)
                     _enable_frozen_cpu_inference(prepared)
                     self._teacher = prepared
                     self.fit_state_restored = True
