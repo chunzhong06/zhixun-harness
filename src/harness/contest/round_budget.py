@@ -17,6 +17,10 @@ class CloseResearch(RuntimeError):
     """本轮需要转入选案，已有完整的数值结果可以继续使用。"""
 
 
+class UnchangedBearingFeedback(CloseResearch):
+    """输入和已完成的无增益比较完全相同。"""
+
+
 class HostCallInterrupted(Exception):
     """送出 RPC 后结果未知，须越过研究驱动的普通候选失败回退。"""
 
@@ -205,7 +209,8 @@ def retain_before_training(rnd, parent, release, native_state, reason):
     identity = checkpoint_state(parent)
     history_path = native_state/f'history-{rnd.dataset_key}.json'
     history = json.loads(history_path.read_bytes()).get('events',[]) if history_path.is_file() else []
-    report = dict(status='budget_retained_parent',seed=42,executed_parent_epochs=0,
+    unchanged = isinstance(reason,UnchangedBearingFeedback)
+    report = dict(status='unchanged_feedback_retained_parent' if unchanged else 'budget_retained_parent',seed=42,executed_parent_epochs=0,
                   successful_training_candidates=0,experiments=[],initial_steps=identity['steps'],
                   final_steps=identity['steps'],parent_checkpoint_sha256=digest,checkpoint_sha256=digest,
                   checkpoint_state_before=identity,checkpoint_state_after=identity,
@@ -213,7 +218,7 @@ def retain_before_training(rnd, parent, release, native_state, reason):
     stage = f'sdk-{rnd.dataset_key}-{rnd.round_index}'
     history.append(dict(stage=rnd.round_index,platform_stage_id=stage,accepted=False,
                         actual_parent_sha256=digest,published_sha256=digest,selected={},
-                        error={'type':'budget','message':str(reason)}))
+                        error=None if unchanged else {'type':'budget','message':str(reason)}))
     release.mkdir(exist_ok=True)
     atomic_json(release/'training.json',report)
     atomic_json(history_path,{'events':history})

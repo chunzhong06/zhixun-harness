@@ -71,6 +71,10 @@ def registered_tabular_resource(profile, parent, train, *, manifest=None):
         if profile == 'B' and not has_rows and 'tabpfn_regressor_state' in arrays.files:
             spec = json.loads(str(arrays['tabpfn_regressor_state']))
             if spec.get('feature_paths') == model.meta['paths'] and len(data['ids']) >= 2:
+                from harness.learning.inference import bearing_fit_state
+                prepared = bearing_fit_state.manifest()
+                if prepared is not None and bearing_fit_state.issued_indices(data,prepared) is None:
+                    return None
                 return {'checkpoint':str(path), 'sha256':selected['sha256'], 'context_train_sha256':data['sha256']}
         if profile == 'A' and 'tabpfn_classifier_state' in arrays.files:
             teacher = json.loads(str(arrays['tabpfn_classifier_state']))
@@ -124,8 +128,45 @@ def export_bearing_teacher_weights(source, destination):
                      tabpfn_regressor_state=np.asarray(json.dumps(spec, sort_keys=True)))
 
 
+def _bearing_reference_rows(train, segments):
+    """在连续寿命段内兼顾时间覆盖和振动变化，每段仍至多取 128 条。"""
+    fields = ('rms', 'kurtosis', 'spectral_centroid', 'band1_energy_0_2k',
+              'band2_energy_2k_6k', 'band3_energy_6k_12k')
+    paths = [json.dumps([['key', 'features'], ['key', axis], ['key', field]], separators=(',', ':'))
+             for axis in ('horizontal', 'vertical') for field in fields]
+    columns = {path: index for index, path in enumerate(train['paths'])}
+    if not all(path in columns for path in paths):
+        return np.concatenate([s[np.linspace(0, len(s)-1, min(len(s), 128), dtype=int)] for s in segments])
+    raw = train['x'][:, [columns[path] for path in paths]]
+    center = np.median(raw, axis=0)
+    width = np.quantile(raw, .75, axis=0) - np.quantile(raw, .25, axis=0)
+    scaled = np.arcsinh((raw-center)/np.where(width > 0, width, 1.))
+    selected = []
+    for segment in segments:
+        if len(segment) <= 128:
+            selected.extend(segment)
+            continue
+        padded = np.pad(scaled[segment], ((4, 4), (0, 0)), mode='edge')
+        smooth = np.median(np.lib.stride_tricks.sliding_window_view(padded, 9, axis=0), axis=-1)
+        changes = np.linalg.norm(np.diff(smooth, axis=0), axis=1)
+        distance = np.r_[0., np.cumsum(np.minimum(changes, np.quantile(changes, .95)))]
+        timeline = np.linspace(0., 1., len(segment))
+        if distance[-1] == 0:
+            selected.extend(segment[np.linspace(0, len(segment)-1, 128, dtype=int)])
+            continue
+        progress = (timeline + distance/distance[-1])/2
+        previous = -1
+        for j, target in enumerate(np.linspace(0., 1., 128)):
+            index = int(np.searchsorted(progress, target))
+            # 为其余配额留足不同的源行，首末观测也各自保留。
+            choices = np.clip([index-1, index], previous+1, len(segment)-128+j)
+            previous = int(choices[np.argmin(abs(progress[choices]-target))])
+            selected.append(segment[previous])
+    return np.asarray(selected, dtype=int)
+
+
 def rebuild_bearing_resource(resource, train, destination):
-    """由当轮合法训练行重建上下文；可辨认的连续寿命序列沿用每段最多128个均布观测。"""
+    """从当轮合法训练数据重建固定容量的轴承教师参照。"""
     if resource['context_train_sha256'] != train['sha256']:
         raise ValueError('回归教师的训练输入身份改变')
     with np.load(resource['checkpoint'], allow_pickle=False) as data:
@@ -134,12 +175,20 @@ def rebuild_bearing_resource(resource, train, destination):
         labels = train['y']
         if type(capacity) is not int or capacity < 2 or len(labels) < 2 or spec['feature_paths'] != train['paths']:
             raise ValueError('回归上下文容量或输入列不符')
-        rows = np.arange(len(labels))
+        from harness.learning.inference import bearing_fit_state
+        prepared = bearing_fit_state.manifest()
+        if prepared is None:
+            rows = np.arange(len(labels))
+        else:
+            rows = bearing_fit_state.issued_indices(train,prepared)
+            if rows is None:
+                raise ValueError('现场训练数据未覆盖已登记的轴承源上下文')
+            rows = np.asarray(rows,dtype=int)
         if len(rows) > capacity:
             cuts = np.flatnonzero(np.diff(labels) != -1)+1
             segments = np.split(rows, cuts)
             if all(len(s) > 1 for s in segments):
-                rows = np.concatenate([s[np.linspace(0,len(s)-1,min(len(s),128),dtype=int)] for s in segments])
+                rows = _bearing_reference_rows(train, segments)
             if len(rows) > capacity:
                 rows = rows[np.linspace(0,len(rows)-1,capacity,dtype=int)]
         x, y = train['x'][rows], labels[rows]

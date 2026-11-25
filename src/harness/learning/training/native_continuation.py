@@ -155,6 +155,8 @@ class ContinuationSession:
             'transition': 'new_component_from_native_parent',
             'function_preserving': model.state['parent_weight'] == 1,
             'training_objective': 'complete_prediction'}
+        if 'bearing_cpu_readout' in model.state:
+            report['serving_readout'] = dict(model.state['bearing_cpu_readout'])
         self._component_history.append(report)
         return deepcopy(report)
 

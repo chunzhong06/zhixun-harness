@@ -1,8 +1,19 @@
 """按任务公开声明的评价协议发布；比赛公开选案与研究独立确认分开。"""
 import math
+import numpy as np
 
 
-def select_public_validation(parent, candidates, *, validation_loss):
+def balanced_brier(labels, probabilities):
+    """各个当轮可见类别等权，衡量预测给真实标签及其他标签分配的概率。"""
+    y = np.asarray(labels, dtype=int) - 1
+    p = np.asarray(probabilities, dtype=float)
+    if p.shape != (len(y), 6) or not len(y) or np.any((y < 0) | (y >= 6)):
+        raise ValueError("气体概率与当轮标签不匹配")
+    square = np.sum((p - np.eye(6)[y])**2, axis=1)
+    return float(np.mean([square[y == c].mean() for c in np.unique(y)]))
+
+
+def select_public_validation(parent, candidates, *, validation_loss, probability_loss=None):
     """对真实成功候选重算同一完整公开验证损失，平分保留先前版本。
 
     candidates为按执行顺序的(role, candidate)，不以模型最后提名缩小范围。
@@ -15,6 +26,9 @@ def select_public_validation(parent, candidates, *, validation_loss):
         raise ValueError('父版公开验证损失必须有限')
     seen = {parent['weights_sha256']}
     reviews = []
+    confidence = probability_loss(parent) if probability_loss else None
+    if probability_loss:
+        candidates = sorted(candidates, key=lambda row: row[0] != 'reference')
     for role, candidate in candidates:
         key = candidate['weights_sha256']
         if key in seen:
@@ -22,11 +36,19 @@ def select_public_validation(parent, candidates, *, validation_loss):
         seen.add(key)
         loss = float(validation_loss(candidate))
         accepted = math.isfinite(loss) and loss < best
+        reason = 'public_validation_improved' if accepted else 'no_public_validation_gain' if math.isfinite(loss) else 'nonfinite_loss'
+        extra = {}
+        if probability_loss:
+            score = probability_loss(candidate)
+            extra = {'balanced_brier_before':confidence, 'balanced_brier_after':score}
+            if accepted and not score <= confidence:
+                accepted, reason = False, 'balanced_brier_increased'
+            if accepted:
+                confidence = score
         reviews.append({'role': role, 'candidate_sha256': key,
                         'incumbent_sha256': incumbent['weights_sha256'], 'accepted': accepted,
                         'validation_before': best, 'validation_after': loss if math.isfinite(loss) else None,
-                        'reason': 'public_validation_improved' if accepted else
-                                  'no_public_validation_gain' if math.isfinite(loss) else 'nonfinite_loss'})
+                        'reason': reason, **extra})
         if accepted:
             incumbent, best = candidate, loss
     return incumbent, reviews

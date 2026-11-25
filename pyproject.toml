@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "zhixun-harness"
-version = "0.3.3"
+version = "0.3.15"
 description = "共享研究、真实续训和比赛交付内核"
 requires-python = ">=3.11"
 dependencies = ["numpy>=2.2,<3"]

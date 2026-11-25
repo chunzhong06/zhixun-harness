@@ -7,7 +7,7 @@ import json
 import numpy as np
 from harness.engine.research_recovery import file_identity, verify_files
 from harness.adapters.storage.local import atomic_json
-from harness.engine.publication_selection import protect_incumbent, select_public_validation
+from harness.engine.publication_selection import balanced_brier, protect_incumbent, select_public_validation
 
 @dataclass
 class RoundSession:
@@ -124,21 +124,32 @@ async def run_round(session, *, task, task_dir, specification, output, folder, p
         'repeated_reference_policy': '相同父版与资料上的已登记确定性参考程序会复用原候选，明确不计作新训练；自由源码仍执行。',
         'reference_sources': references}
     error = None
+    if public_selection and task == 'gas':
+        description['publication_policy'] += ' 气体先比较固定参考；后续候选还须使按实际类别等权的 Brier 概率误差不增加。'
     handoff = None
     research_options = {}
     if public_selection and specification.get('final_choice_at_host') is True:
         research_options['final_choice_at_host'] = True
         description['final_selection'] = '现场程序训练成功且只剩提名名额时，下一次选择在宿主测量后进行；仍有实验名额时可继续研究。'
-    try:
-        selected = await session.research(description, task_dir, folder / 'workspace', executor, broker,
-            instruction=session.instruction, reference_sources=references, resume=resume, copy_inputs=False,
-            program_seconds=program_seconds, **research_options)
-        handoff = selected.get('handoff') if research_options else None
-        nominated = None if handoff else selected['candidates'][0]
-    except (RuntimeError, ValueError, TimeoutError) as exc:
-        # 保留研究失败事实，仍按事前声明的公开选案或固定确认规则发布。
-        error = {'type': type(exc).__name__, 'message': str(exc)}
-        nominated = None
+    substantial_reference = (
+        task == 'bearing' and public_selection and research_options.get('final_choice_at_host')
+        and reference_candidate is not None and original_candidate['score'] > 0
+        and 0 <= reference_candidate['score'] <= .98 * original_candidate['score'])
+    if substantial_reference:
+        # 只在同父真实训练与当轮完整公开测量已取得明显改善时提前交还宿主。
+        # 微小改进、首次失败、资料改变后未重测的参考均不能触发。
+        start['stop_reason'] = 'bearing_reference_rmse_gain_at_least_two_percent'
+        nominated = reference_candidate
+    else:
+        try:
+            selected = await session.research(description, task_dir, folder / 'workspace', executor, broker,
+                instruction=session.instruction, reference_sources=references, resume=resume, copy_inputs=False,
+                program_seconds=program_seconds, **research_options)
+            handoff = selected.get('handoff') if research_options else None
+            nominated = None if handoff else selected['candidates'][0]
+        except (RuntimeError, ValueError, TimeoutError) as exc:
+            error = {'type': type(exc).__name__, 'message': str(exc)}
+            nominated = None
     if start and (deferred or try_research_first) and not any(r.get('launched_training_worker') and not r['returncode'] and r['candidates']
                             for r in executor.records):
         # 研究直接保父或新试验失败时，本轮仍从真实父模型续训。历史分数从不作为待交付候选。
@@ -167,7 +178,9 @@ async def run_round(session, *, task, task_dir, specification, output, folder, p
         pool = [(('reference' if row['actor'] == 'frozen_starting_reference' else 'research'), c)
                 for row in executor.records if row['returncode'] == 0 for c in row['candidates']]
         candidate, reviews = select_public_validation(original_candidate, pool,
-            validation_loss=lambda c: session.measure(task, oracle['explore']['y'], candidate_predictions(c)[0])['loss'])
+            validation_loss=lambda c: session.measure(task, oracle['explore']['y'], candidate_predictions(c)[0])['loss'],
+            probability_loss=(lambda c: balanced_brier(oracle['explore']['y'], candidate_predictions(c)[0]))
+            if task == 'gas' else None)
     else:
         candidate, reviews = protect_incumbent(original_candidate, reference_candidate, nominated,
             confirmation_loss=lambda c: session.measure(task, oracle['adopt']['y'], candidate_predictions(c)[1])['loss'])

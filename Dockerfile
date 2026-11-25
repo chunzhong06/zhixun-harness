@@ -1,16 +1,17 @@
-ARG BASE=zhixun-harness:sdk-0.3.2-gzip@sha256:279abfa33f46aaebd9095a9caa7413a5e8a0a2491bc3c3d5acbd6fdc11f3e554
+ARG BASE=zhixun-cpu-runtime:1-gzip@sha256:7a288dfa75b2400cbda1a0f38783da2b80caefaebf5e3f131761198787018f54
 FROM ${BASE}
-WORKDIR /app
-# 父层提供官方 SDK、CPU 依赖和量化权重。业务代码完整取自本次检出。
+# 运行时仅提供依赖和冻结资产。产品代码完整取自此次检出。
 RUN --mount=type=bind,target=/input \
-    rm -rf /app/src/harness /app/baselines /app/build /app/src/zhixun_harness.egg-info \
-           /usr/local/lib/python3.13/site-packages/harness /usr/local/lib/python3.13/site-packages/zhixun_harness-*.dist-info \
-    && cp -R /input/src/harness /app/src/ \
-    && cp -R /input/baselines /app/ \
-    && cp /input/pyproject.toml /input/harness.py /input/contest_submission.py /app/ \
-    && cp /input/assets/tabular-resources.json /app/assets/ \
+    mkdir -p /app/src \
+    && cp -R /input/src/harness /app/src/harness \
+    && cp -R /input/baselines /app/baselines \
+    && cp /input/harness.py /input/contest_submission.py /input/pyproject.toml /app/ \
     && cp /input/release/training-sources.json /input/release/verify_training_runtime.py /opt/ \
-    && python3 -m pip install --no-deps --no-build-isolation --no-index --no-compile --no-cache-dir --force-reinstall /app \
-    && rm -rf /app/build /app/src/zhixun_harness.egg-info \
+    && python3 -m pip install --no-deps --no-build-isolation --no-index --no-compile --no-cache-dir /app \
+    && rm -rf /app/build /app/src/zhixun_harness.egg-info /usr/local/lib/python3.13/site-packages/harness \
+    && ln -s /app/src/harness /usr/local/lib/python3.13/site-packages/harness \
+    && ln -s /app/src/harness /app/harness \
     && python3 -B /opt/verify_training_runtime.py
-LABEL org.opencontainers.image.version="0.3.3"
+ARG VERSION=0.3.15
+LABEL org.opencontainers.image.version=${VERSION}
+ENTRYPOINT ["python3","-B","/app/harness.py"]

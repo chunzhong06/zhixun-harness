@@ -70,6 +70,8 @@ def prediction_sources(package, checkpoint):
         with np.load(checkpoint, allow_pickle=False) as arrays:
             state = json.loads(str(arrays['complete_state'])) if complete else {}
             kind = state.get('kind')
+        if kind == 'engine-source-distribution':
+            files['baselines/engine_source_forest.py'] = Path(__file__).with_name('engine_source_forest.py').read_bytes()
         if aligned:
             files['baselines/engine_setting_alignment.py'] = Path(__file__).with_name('engine_setting_alignment.py').read_bytes()
         if partial:
@@ -100,6 +102,9 @@ def prediction_sources(package, checkpoint):
                     if 'kinetic_readout' in state:
                         files['baselines/gas_kinetic_support.py']=Path(__file__).with_name('gas_kinetic_support.py').read_bytes()
             if kind == 'tabpfn-regression-parent':
+                files['baselines/bearing_fit_state.py'] = Path(__file__).with_name('bearing_fit_state.py').read_bytes()
+                if 'bearing_cpu_readout' in state:
+                    files['baselines/bearing_cpu_readout.py'] = Path(__file__).with_name('bearing_cpu_readout.py').read_bytes()
                 files['baselines/tabpfn_regressor.py'] = Path(__file__).with_name('tabpfn_regressor.py').read_bytes()
                 with np.load(checkpoint, allow_pickle=False) as arrays:
                     has_tabm = 'tabm_readout' in arrays.files
@@ -200,6 +205,12 @@ def load_checkpoint(path, base_class):
         else:
             from tabpfn_regressor import TabPFNRegressorModel
         model_class = TabPFNRegressorModel
+    elif state.get('kind') == 'engine-source-distribution':
+        if __package__:
+            from .engine_source_forest import SourceForestModel
+        else:
+            from engine_source_forest import SourceForestModel
+        model_class = SourceForestModel
     elif state.get('kind') == 'bearing-native-grid-parent':
         model_class = NativeBearingGridModel
     else:

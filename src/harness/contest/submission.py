@@ -194,9 +194,14 @@ def _native_round(rnd, parent, output, state):
     budget.program_limit = seconds
     if not budget.allowance(seconds):
         raise CloseResearch('当前时间不足以再开一次候选训练')
+    if profile == 'C':
+        from .engine_distribution_round import try_round
+        result = try_round(rnd,parent,output,state,budget,seconds)
+        if result is not None:
+            return result
     previous_threads = os.environ.get('ZHIXUN_SDK_PREDICT_THREADS')
     if profile in ('A', 'B'):
-        os.environ['ZHIXUN_SDK_PREDICT_THREADS'] = str(_prediction_threads(maximum=4 if profile == 'A' else 2))
+        os.environ['ZHIXUN_SDK_PREDICT_THREADS'] = str(_prediction_threads(maximum=4))
     try:
         return asyncio.run(run_platform(profile, rnd.data.train_path, rnd.data.validation_path, parent, output,
             stage_id=f'sdk-{profile}-{rnd.round_index}', state_dir=state, calls=calls, max_epochs=epochs,
@@ -239,7 +244,8 @@ def train(rnd):
 
 def _train_timed(rnd,budget):
     from contest_harness import SDK_VERSION
-    from .round_budget import CloseResearch, retain_before_training
+    from .round_budget import CloseResearch, UnchangedBearingFeedback, retain_before_training
+    from . import bearing_search
     work = _training_workspace(_workspace())
     parent = _checkpoint(rnd)
     history = rnd.history()
@@ -262,7 +268,10 @@ def _train_timed(rnd,budget):
     started = budget.start
     release = work/'native-release'
     checkpoint = release/'checkpoint.npz'
+    comparison = bearing_search.inputs_for(rnd,_implementation()) if rnd.dataset_key == 'B' else None
     try:
+        if comparison and bearing_search.already_compared(restored,comparison):
+            raise UnchangedBearingFeedback('当前父模型在相同训练与验证发放上已完整比较过候选，本轮继续评测与选案。')
         if not _training_enabled(rnd, restored):
             raise CloseResearch('训练策略：本轮默认保留父模型，仅完成选案、状态保存和交接')
         if not budget.allowance(_limit('HARNESS_PROGRAM_SECONDS',1800,1,3600)):
@@ -353,7 +362,11 @@ def _train_timed(rnd,budget):
     if rnd.dataset_key == 'B':
         from harness.learning.inference.teacher_cache import copy_training_hint
         recording = Path(publication['recording_directory'])
-        if copy_training_hint(recording/'.frozen-teacher'/parent_digest, saved/'training-hint'):
+        repeated = report['status'] == 'unchanged_feedback_retained_parent' and selected_id == rnd.parent.artifact_id
+        if repeated or bearing_search.finished_without_gain(report,selected,comparison):
+            atomic_json(saved/'bearing-comparison.json',comparison)
+        hint = native_state/'prior-training-hint' if repeated else recording/'.frozen-teacher'/parent_digest
+        if copy_training_hint(hint, saved/'training-hint'):
             try:
                 check_files(saved)
             except ValueError:
@@ -436,6 +449,9 @@ def predict(sample, model_dir):
         os.environ['ZHIXUN_SDK_PREDICT_THREADS'] = str(_prediction_threads(maximum=4 if sample.task == 'classification' else 2))
         loading = time.monotonic()
         _prediction_model = Model.load(path)
+        if _prediction_model.meta.get('profile') == 'B':
+            # 加载检查点后才确认任务；冻结回归器从首行拟合起按实际配额使用核数。
+            os.environ['ZHIXUN_SDK_PREDICT_THREADS'] = str(_prediction_threads(maximum=4))
         _prediction_started = time.monotonic() - loading
         _prediction_rows = 0
         _prediction_samples = []

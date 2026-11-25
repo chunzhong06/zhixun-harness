@@ -55,6 +55,9 @@ class TabPFNRegressorModel(TabICLReadoutModel):
         self.base = base
         self.auxiliary_arrays = {k: v.copy() for k, v in auxiliary_arrays.items()}
         expected_fields = {*RESOURCE_FIELDS, 'complete_state'}
+        self._cpu_readout = None
+        if 'bearing_cpu_readout' in self.auxiliary_arrays:
+            expected_fields.add('bearing_cpu_readout')
         if set(self.auxiliary_arrays) not in (expected_fields, expected_fields | {'tabm_readout'}):
             raise ValueError('TabPFN回归资源字段不完整或含未知持久状态')
         for name in ('complete_state', 'tabpfn_regressor_state', 'teacher_license'):
@@ -99,6 +102,16 @@ class TabPFNRegressorModel(TabICLReadoutModel):
                 or self.state.get('context_updates') != 'frozen_source_context'):
             raise ValueError('完整回归描述与冻结资源不一致')
         self._teacher = None
+        spec_cpu = self.state.get('bearing_cpu_readout')
+        if (spec_cpu is None) != ('bearing_cpu_readout' not in self.auxiliary_arrays):
+            raise ValueError('轴承 CPU 读出与检查点字段不对应')
+        if spec_cpu is not None:
+            payload = self.auxiliary_arrays['bearing_cpu_readout']
+            if (base.meta.get('profile') != 'B' or spec_cpu.get('format') != 'bearing-cpu-rbf-v1'
+                    or payload.dtype != np.uint8 or payload.ndim != 1
+                    or _array_sha256(payload) != spec_cpu.get('sha256')):
+                raise ValueError('轴承 CPU 读出格式或摘要无效')
+            self._cpu_readout = self._cpu_readout_class()(payload,len(base.meta['paths']))
         self._training_teacher = {}
         self._prediction_cache = {}
         self._tabm = None
@@ -143,7 +156,8 @@ class TabPFNRegressorModel(TabICLReadoutModel):
         if self._teacher is not None:
             return
         import torch
-        torch.set_num_threads(2 if os.environ.get('ZHIXUN_SDK_PREDICT_THREADS') == '2' else 1)
+        threads = os.environ.get('ZHIXUN_SDK_PREDICT_THREADS')
+        torch.set_num_threads(int(threads) if threads in ('2','4') else 1)
         torch.manual_seed(42)
         variables = ('HF_HUB_OFFLINE', 'TABPFN_NO_BROWSER', 'SKB_DATA_DIRECTORY', 'TABPFN_MODEL_CACHE_DIR')
         previous = {name: os.environ.get(name) for name in variables}
@@ -152,17 +166,28 @@ class TabPFNRegressorModel(TabICLReadoutModel):
                 os.environ.update(HF_HUB_OFFLINE='1', TABPFN_NO_BROWSER='1',
                                   SKB_DATA_DIRECTORY=temporary, TABPFN_MODEL_CACHE_DIR=temporary)
                 package = author_package()
+                if __package__:
+                    from .bearing_fit_state import load
+                else:
+                    from bearing_fit_state import load
                 path = Path(temporary) / 'tabpfn-v3.5-fast-20260909.safetensors'
                 restore_teacher(self.auxiliary_arrays['teacher_asset'], path)
                 # 文件头的映射顺序可跨进程改变，展开后核数值内容而非容器字节。
                 decoded_sha = self.teacher_state.get('decoded_teacher_content_sha256')
                 if decoded_sha is not None and teacher_content_sha256(path) != decoded_sha:
                     raise ValueError('回归教师展开内容摘要不符')
+                prepared = load(self.teacher_state,package,path)
+                if prepared is not None:
+                    _enable_frozen_cpu_inference(prepared)
+                    self._teacher = prepared
+                    self.fit_state_restored = True
+                    return
                 model = package.TabPFNRegressor(model_path=path, n_estimators=8, device='cpu',
                     random_state=42, fit_mode='fit_with_cache', n_preprocessing_jobs=1,
                     inference_precision=torch.float32)
                 x, y = self.auxiliary_arrays['readout_source_x'], self.auxiliary_arrays['readout_source_y']
                 model.fit(x.astype(np.float32), y.copy())
+                self.fit_state_restored = False
                 if model.n_features_in_ != x.shape[1] or model.n_estimators_ != 8:
                     raise ValueError('作者回归器的实际输入或估计器数不符')
                 _enable_frozen_cpu_inference(model)
@@ -184,7 +209,17 @@ class TabPFNRegressorModel(TabICLReadoutModel):
         """仅训练宿主可绑定临时目录；独立预测实例从交付检查点自行推理。"""
         self._round_cache = folder
 
+    @staticmethod
+    def _cpu_readout_class():
+        if __package__:
+            from .bearing_cpu_readout import BearingCPUReadout
+        else:
+            from bearing_cpu_readout import BearingCPUReadout
+        return BearingCPUReadout
+
     def _teacher_predict(self, rows):
+        if self._cpu_readout is not None:
+            return self._cpu_readout.predict(rows)
         self._load_teacher()
         backend = getattr(self._teacher, '_zhixun_cpu_backend', None)
         if backend is None:
@@ -197,6 +232,9 @@ class TabPFNRegressorModel(TabICLReadoutModel):
             active.reset(token)
 
     def _prefetch_batch(self, raw, cache, role):
+        if self._cpu_readout is not None:
+            prefetch_teacher(cache,raw,self._teacher_predict,nonnegative=True,batch_size=256)
+            return
         if self._round_cache is None:
             prefetch_teacher(cache, raw, self._teacher_predict, nonnegative=True, batch_size=128)
             return

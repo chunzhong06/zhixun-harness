@@ -1,0 +1,31 @@
+# CPU 依赖和冻结模型资源只迁移一次。后续产品版本从该运行时安装完整源码。
+ARG DONOR=zhixun-harness:sdk-0.3.14-gzip@sha256:8be022da16ad8777fa4c865e5af94d6b472fb120443f604b4a59a01d1ef60c2d
+FROM ${DONOR} AS migrate
+RUN rm -rf /app/src /app/baselines /app/harness /app/harness.py /app/contest_submission.py /app/pyproject.toml \
+        /usr/local/lib/python3.13/site-packages/harness /usr/local/lib/python3.13/site-packages/zhixun_harness-*.dist-info \
+        /usr/local/bin/harness-* /opt/training-sources.json /opt/verify_training_runtime.py \
+    && python3 -B - <<'PY'
+from hashlib import file_digest
+import json
+from pathlib import Path
+
+folder = Path("/opt/zhixun/bearing-fit-v1")
+manifest = folder / "manifest.json"
+record = json.loads(manifest.read_bytes())
+archive = folder / "source.tabpfn_fit"
+with archive.open("rb") as stream:
+    assert file_digest(stream,"sha256").hexdigest() == record["files"][archive.name]
+weight = folder / "tabpfn-v3.5-fast-20260909.safetensors"
+weight.unlink()
+record["files"] = {archive.name: record["files"][archive.name]}
+manifest.write_text(json.dumps(record,sort_keys=True))
+manifest.chmod(0o444)
+PY
+
+FROM scratch
+COPY --from=migrate / /
+ENV PATH=/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin LANG=C.UTF-8 \
+    PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 BASELINE_CPU_THREADS=1 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
+    PYTHONPATH=/app/src:/app/author-runtime HARNESS_TABULAR_RESOURCES=/app/assets/tabular-resources.json \
+    CONTEST_SUBMISSION=contest_submission HF_HUB_OFFLINE=1 TABPFN_NO_BROWSER=1 CONTEST_WORK=/workspace
+WORKDIR /app
