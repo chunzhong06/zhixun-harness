@@ -111,14 +111,21 @@ def prepare_round(profile, train_path, validation_path, parent, work, *, baselin
     if hasattr(model, 'bind_round_cache'):
         # 只缓存冻结教师对特征的输出；公开验证标签仍仅在宿主评分端使用。
         cache = work / '.frozen-teacher' / sha256(parent.read_bytes()).hexdigest()
-        if profile != 'A' and training_hint is not None:
+        hint_name = model.training_hint_name(train['x']) if hasattr(model, 'training_hint_name') else None
+        if profile != 'A' and training_hint is not None and hint_name is not None:
             from harness.learning.inference.teacher_cache import copy_training_hint
-            copy_training_hint(training_hint, cache)
+            copy_training_hint(training_hint, cache, name=hint_name)
         model.bind_round_cache(cache)
         if profile != 'A':
             # 已有回归路径预取合法训练行。气体只复用本轮内部评价的教师概率。
+            from time import monotonic, process_time
+            start_wall, start_cpu = monotonic(), process_time()
             model.prepare_training(train['x'])
-            atomic_json(work/'training-cache-start.json', {'training_hit':bool(model.round_cache_hits['training'])})
+            atomic_json(work/'training-cache-start.json', {'training_hit': bool(model.round_cache_hits['training']),
+                                                          'training_hint_name': hint_name,
+                                                          'training_rows': len(train['x']),
+                                                          'teacher_wall_s': round(monotonic()-start_wall, 3),
+                                                          'teacher_cpu_s': round(process_time()-start_cpu, 3)})
     pred=getattr(model,'predict_batch',model.predict)(valid['x'])
     if profile == 'A' and selection_policy == 'public-validation':
         # 完整服务数组复用批量结果，只做有限单行调用确认接口一致性。
@@ -221,6 +228,8 @@ async def run_platform(profile, train, validation, parent, output, *, stage_id='
             specification['parent_handoff'] = handoff
             if final_choice_at_host:
                 specification['final_choice_at_host'] = True
+                if profile == 'A' and budget:
+                    specification['extra_program_seconds'] = budget.program_limit
                 if profile == 'A' and budget and budget.defer_gas_reference:
                     specification['defer_gas_reference'] = True
             atomic_json(specification_path, specification)

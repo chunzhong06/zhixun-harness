@@ -1,250 +1,161 @@
 {
-  "version": "0.3.16",
-  "control": "0.3.15",
-  "image": "sha256:07740a9add6da66b0615c7f36ae248e2ea7f2df09878abb63e8a3ca7c06a6a8d",
-  "archive_sha256": "87bbafc63266e672cce92cdbc1ac38fc6a6a7ade99a07390ff8a80e1428fadc4",
-  "bytes": 408031744,
-  "prior_bytes": 408030720,
-  "layers": [
-    3,
-    3
-  ],
-  "fixed_weight_score": 71.26207685956216,
-  "fixed_weight_rows": {
-    "B": 33,
-    "C": 707,
-    "A": 11530
-  },
-  "C_early_rows": 707,
-  "fixed_weight_source": "0.3.14",
-  "B_cold_pairs": [
-    {
-      "cores": 2,
-      "order": [
-        "grid",
-        "old"
-      ],
-      "old": {
-        "1": 10.82074879999709,
-        "16": 11.860996800001885,
-        "64": 14.960231099998055,
-        "256": 27.13902919999964,
-        "512": 40.80419809999876,
-        "1024": 71.29328800000076,
-        "1679": 116.51764949999779
+  "version": "0.3.17",
+  "sdk": "1.0.4",
+  "control": "0.3.16",
+  "image": "sha256:6979e21ab14dcaf004bd453f5496fbb5beaf481dd755e8cad054a3f1f0e1b05f",
+  "archive_sha256": "bc6206f3887511ef867b5a98620cca52af71a6d737e3928465790f53c513ac9a",
+  "bytes": 408036864,
+  "extra_archive_bytes": 5120,
+  "docker_load_verified": true,
+  "model_access": "host_gateway_rpc",
+  "website_submissions": 0,
+  "A": {
+    "conditions": "same first reference from official parent and same issued training and validation",
+    "cpu_stress": {
+      "0.3.16-0.2": {
+        "timeout": true,
+        "seconds": 180.22,
+        "metrics": []
       },
-      "grid": {
-        "1": 12.041719300003024,
-        "16": 12.971159900000202,
-        "64": 15.872592400002759,
-        "256": 27.29278869999689,
-        "512": 42.899588599997514,
-        "1024": 71.20866989999922,
-        "1679": 106.43488490000163
+      "0.3.17-0.2": {
+        "timeout": false,
+        "seconds": 203.01,
+        "metrics": [
+          {
+            "score": 0.9464158260414943,
+            "loss": 0.053584173958505676,
+            "metric": "Macro-F1"
+          }
+        ]
       },
-      "old_wall": {
-        "1": 14.250939699995797,
-        "64": 18.39042199999676,
-        "1679": 119.9478403999965
+      "0.3.17-4": {
+        "timeout": false,
+        "seconds": 19.69,
+        "metrics": [
+          {
+            "score": 0.9464158260414943,
+            "loss": 0.053584173958505676,
+            "metric": "Macro-F1"
+          }
+        ]
       },
-      "grid_wall": {
-        "1": 15.797180300003674,
-        "64": 19.62805340000341,
-        "1679": 110.19034590000228
-      },
-      "prediction_sha256": "ee3cd580ff4e2c2d5e966983410cb91d7767983728a3526eefe8deef667f856f"
-    },
-    {
-      "cores": 4,
-      "order": [
-        "old",
-        "grid"
-      ],
-      "old": {
-        "1": 11.97172569999384,
-        "16": 12.834238299998106,
-        "64": 15.648372399999062,
-        "256": 26.933668199999374,
-        "512": 41.90519399999903,
-        "1024": 71.86840409999422,
-        "1679": 109.66807699999481
-      },
-      "grid": {
-        "1": 12.075571900000796,
-        "16": 12.824718200005009,
-        "64": 15.3312236999991,
-        "256": 25.18617290000111,
-        "512": 38.621159800000896,
-        "1024": 64.80098400000134,
-        "1679": 98.80049629999849
-      },
-      "old_wall": {
-        "1": 15.642350299996906,
-        "64": 19.318997000002128,
-        "1679": 113.33870159999788
-      },
-      "grid_wall": {
-        "1": 15.698697300002095,
-        "64": 18.9543491000004,
-        "1679": 102.42362169999979
-      },
-      "prediction_sha256": "9835b1301b0ee690102ef970f8fb36eb2d8e236ff20c09862f08f46b1508f765"
-    },
-    {
-      "cores": 2,
-      "order": [
-        "old",
-        "grid"
-      ],
-      "old": {
-        "1": 11.270973400001822,
-        "16": 12.27736630000436,
-        "64": 15.394003400004294,
-        "256": 28.660419000007096,
-        "512": 45.71843240000453,
-        "1024": 79.81849490000604,
-        "1679": 122.99214580000262
-      },
-      "grid": {
-        "1": 11.953880900000513,
-        "16": 12.916625800004113,
-        "64": 15.786750200000824,
-        "256": 27.620147800007544,
-        "512": 43.2079983000076,
-        "1024": 74.48163210000348,
-        "1679": 114.2527945000038
-      },
-      "old_wall": {
-        "1": 14.989866199997778,
-        "64": 19.11289620000025,
-        "1679": 126.71103859999857
-      },
-      "grid_wall": {
-        "1": 15.534408299994539,
-        "64": 19.36727759999485,
-        "1679": 117.83332189999783
-      },
-      "prediction_sha256": "ee3cd580ff4e2c2d5e966983410cb91d7767983728a3526eefe8deef667f856f"
-    },
-    {
-      "cores": 4,
-      "order": [
-        "grid",
-        "old"
-      ],
-      "old": {
-        "1": 11.891950099998212,
-        "16": 12.747688699993887,
-        "64": 15.432652299998153,
-        "256": 26.72812459999841,
-        "512": 41.41734779999388,
-        "1024": 70.89085969999724,
-        "1679": 108.51828029999888
-      },
-      "grid": {
-        "1": 11.933595400005288,
-        "16": 12.691370100001222,
-        "64": 15.226646200004325,
-        "256": 24.98305710000568,
-        "512": 38.200004800004535,
-        "1024": 65.42116580000584,
-        "1679": 99.8220994000003
-      },
-      "old_wall": {
-        "1": 15.67934950000199,
-        "64": 19.22005170000193,
-        "1679": 112.30567970000266
-      },
-      "grid_wall": {
-        "1": 15.589472300001944,
-        "64": 18.88252310000098,
-        "1679": 103.47797629999695
-      },
-      "prediction_sha256": "9835b1301b0ee690102ef970f8fb36eb2d8e236ff20c09862f08f46b1508f765"
-    }
-  ],
-  "B_fresh_training": {
-    "镜像": "sha256:07740a9add6da66b0615c7f36ae248e2ea7f2df09878abb63e8a3ca7c06a6a8d",
-    "父版": "c7d819fcee9d25459c583b5ffdb35593d4a47b524ed152d0226bf81a283314b4",
-    "发放": {
-      "initial/checkpoint.npz": "c7d819fcee9d25459c583b5ffdb35593d4a47b524ed152d0226bf81a283314b4",
-      "data/train.jsonl": "ae4073c06d710002312d9074f76da286424286aa325261426fe2244f2cef8c16",
-      "data/validation.jsonl": "3bf0bc64fabd790a8abc5f8b95013deaf4ca9481e5c90a9338a036c3707d9178"
-    },
-    "首轮选中": "candidate-B-1",
-    "重训候选": "ccdd534bab2cd3a11bc319a35362b797ba0a7cec96852de00f28da4030163ed5",
-    "旧候选": "ccdd534bab2cd3a11bc319a35362b797ba0a7cec96852de00f28da4030163ed5",
-    "候选总字节": 54732635,
-    "最大逐行差": 0.0,
-    "候选独立验证": {
-      "scope": "官方B首轮完整公开验证",
-      "measurement_mode": "full_official_sdk_row_stream",
-      "metrics": {
-        "rmse": 430.2182513732518,
-        "mae": 343.48434847052306
-      },
-      "sample_count": 1679,
-      "first_row_seconds": 11.760481599994819,
-      "total_row_seconds": 94.75906859991665,
-      "later_mean_seconds": 0.0494628051251024,
-      "later_p95_seconds": 0.056226350001816174
-    },
-    "首轮墙钟秒": 239.8758772000001,
-    "实际现场模型": "固定旧版第一轮已存 Luna 回复，训练与独立预测重新执行",
-    "通过": true,
-    "宿主事件秒": [
-      {
-        "事件": "start",
-        "秒": 0.0005383000025176443
-      },
-      {
-        "事件": "upload_begin_request",
-        "秒": 130.82796470000176
-      },
-      {
-        "事件": "upload_finish_response",
-        "秒": 132.09759040000063
-      },
-      {
-        "事件": "candidate_request",
-        "秒": 132.0990982000003
-      },
-      {
-        "事件": "candidate_response",
-        "秒": 233.49076919999789
-      },
-      {
-        "事件": "model_request",
-        "秒": 233.49594030000299
-      },
-      {
-        "事件": "model_response",
-        "秒": 233.49664470000425
-      },
-      {
-        "事件": "upload_begin_request",
-        "秒": 233.50891109999793
-      },
-      {
-        "事件": "upload_finish_response",
-        "秒": 233.54330080000364
-      },
-      {
-        "事件": "round_complete",
-        "秒": 233.5479095999981
-      },
-      {
-        "事件": "round_ack",
-        "秒": 233.5489516000016
-      },
-      {
-        "事件": "process_exit",
-        "秒": 234.3955152999988
+      "0.3.16-4": {
+        "timeout": false,
+        "seconds": 24.25,
+        "metrics": [
+          {
+            "score": 0.9464158260414943,
+            "loss": 0.053584173958505676,
+            "metric": "Macro-F1"
+          }
+        ]
       }
-    ],
-    "通过口径": "本机旧验收条件。记录中模型网关使用历史回复。"
+    },
+    "asset_bytes": 10808,
+    "train_rows": 445
   },
-  "fresh_three_task_ten_rounds": false,
-  "platform_submissions": 0,
-  "swanlab_verification": "https://swanlab.cn/@chunzhong06/zhixun/runs/4a6izp03"
+  "B": {
+    "conditions": "same fourth-round parent and 7032 training rows reordered once, independent processes",
+    "cases": {
+      "0.3.16": [
+        {
+          "name": "switch",
+          "seconds": 85.424435609,
+          "rows_computed": 7032,
+          "cache_hit": false,
+          "exported": false,
+          "outputs": {
+            "explore": "3aed1648370932431578a60b3d4004295d86f0e8c6d1c09a705865aabf4e278a",
+            "adopt": "3aed1648370932431578a60b3d4004295d86f0e8c6d1c09a705865aabf4e278a",
+            "serve": "a25dea199f6fb865e585960dd08e4856eabcc42c97f12cc2474c518e59b777eb"
+          }
+        },
+        {
+          "name": "next",
+          "seconds": 82.88224164999997,
+          "rows_computed": 7032,
+          "cache_hit": false,
+          "exported": true,
+          "outputs": {
+            "explore": "3aed1648370932431578a60b3d4004295d86f0e8c6d1c09a705865aabf4e278a",
+            "adopt": "3aed1648370932431578a60b3d4004295d86f0e8c6d1c09a705865aabf4e278a",
+            "serve": "a25dea199f6fb865e585960dd08e4856eabcc42c97f12cc2474c518e59b777eb"
+          }
+        }
+      ],
+      "0.3.17": [
+        {
+          "name": "switch",
+          "seconds": 82.72751247999997,
+          "rows_computed": 7032,
+          "cache_hit": false,
+          "exported": true,
+          "outputs": {
+            "explore": "3aed1648370932431578a60b3d4004295d86f0e8c6d1c09a705865aabf4e278a",
+            "adopt": "3aed1648370932431578a60b3d4004295d86f0e8c6d1c09a705865aabf4e278a",
+            "serve": "a25dea199f6fb865e585960dd08e4856eabcc42c97f12cc2474c518e59b777eb"
+          }
+        },
+        {
+          "name": "next",
+          "seconds": 23.34604364500001,
+          "rows_computed": 0,
+          "cache_hit": true,
+          "exported": true,
+          "outputs": {
+            "explore": "3aed1648370932431578a60b3d4004295d86f0e8c6d1c09a705865aabf4e278a",
+            "adopt": "3aed1648370932431578a60b3d4004295d86f0e8c6d1c09a705865aabf4e278a",
+            "serve": "a25dea199f6fb865e585960dd08e4856eabcc42c97f12cc2474c518e59b777eb"
+          }
+        }
+      ]
+    }
+  },
+  "regression_tests": 62,
+  "targeted_run": "https://swanlab.cn/@chunzhong06/zhixun/runs/gaa618ey",
+  "fresh_qwen_scores": {
+    "0.3.15": {
+      "estimated": 71.26227963190534,
+      "seconds": 2517.735276,
+      "training_s": 1905.807084,
+      "scoring_s": 611.9205408999997,
+      "model": "Qwen/Qwen3.8-27B"
+    },
+    "0.3.17": {
+      "estimated": 71.26227963190534,
+      "seconds": 2506.4257,
+      "training_s": 1875.828502,
+      "scoring_s": 630.5940967000006,
+      "model": "Qwen/Qwen3.8-27B"
+    }
+  },
+  "local_change": {
+    "score": 0.0,
+    "seconds": -11.309576000000106,
+    "training": -29.97858199999996
+  },
+  "current_tasks": {
+    "A": {
+      "estimated": 78.46837186168456,
+      "seconds": 1336.650859,
+      "calls": 12,
+      "tokens": 80993
+    },
+    "B": {
+      "estimated": 73.58887573099342,
+      "seconds": 1875.817647,
+      "calls": 20,
+      "tokens": 258273
+    },
+    "C": {
+      "estimated": 61.72959130303803,
+      "seconds": 1472.422027,
+      "calls": 10,
+      "tokens": 37363
+    }
+  },
+  "swanlab_verification": "https://swanlab.cn/@chunzhong06/zhixun/runs/13ltdd00",
+  "cpu_pressure_prediction_first_row_limit_s": 120,
+  "cpu_pressure_prediction_first_row_measured_s": 139.51626800000122,
+  "pressure_prediction": "0.20 核下首条预测在 120 秒内没有返回；诊断延长观察得到 139.52 秒。"
 }

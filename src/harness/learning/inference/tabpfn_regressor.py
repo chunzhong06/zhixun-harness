@@ -18,7 +18,7 @@ if __package__:
     from .tabular_readout import TabICLReadoutModel
     from .tabpfn_classifier import author_package
     from .quantized_teacher import MAX_TEACHER_BYTES, restore_teacher, teacher_content_sha256
-    from .teacher_cache import frozen_regression_values, prefetch_teacher
+    from .teacher_cache import batch_cache_key, frozen_regression_values, prefetch_teacher
     try:
         from .complete_checkpoint import FORMAT
     except ImportError:
@@ -28,7 +28,7 @@ else:
     from tabular_readout import TabICLReadoutModel
     from tabpfn_classifier import author_package
     from quantized_teacher import MAX_TEACHER_BYTES, restore_teacher, teacher_content_sha256
-    from teacher_cache import frozen_regression_values, prefetch_teacher
+    from teacher_cache import batch_cache_key, frozen_regression_values, prefetch_teacher
     from complete_model import FORMAT
 
 
@@ -262,6 +262,17 @@ class TabPFNRegressorModel(TabICLReadoutModel):
         finally:
             active.reset(token)
 
+    def _cache_namespace(self, role):
+        return '\n'.join(('regression-cpu-v1', role, machine(),
+                               os.environ.get('ZHIXUN_SDK_PREDICT_THREADS', '1'),
+                               str(self.auxiliary_arrays['tabpfn_regressor_state'])))
+
+    def training_hint_name(self, raw):
+        if self._cpu_readout is None:
+            key = batch_cache_key(self._cache_namespace('training'), self._raw(raw))
+            return 'training-' + key.hexdigest() + '.npz'
+        return None
+
     def _prefetch_batch(self, raw, cache, role):
         if self._cpu_readout is not None:
             prefetch_teacher(cache,raw,self._teacher_predict,nonnegative=True,batch_size=256)
@@ -269,9 +280,7 @@ class TabPFNRegressorModel(TabICLReadoutModel):
         if self._round_cache is None:
             prefetch_teacher(cache, raw, self._teacher_predict, nonnegative=True, batch_size=128)
             return
-        namespace = '\n'.join(('regression-cpu-v1', role, machine(),
-                               os.environ.get('ZHIXUN_SDK_PREDICT_THREADS', '1'),
-                               str(self.auxiliary_arrays['tabpfn_regressor_state'])))
+        namespace = self._cache_namespace(role)
         if frozen_regression_values(self._round_cache, namespace, raw, cache, self._teacher_predict,
                                     training=role == 'training'):
             self.round_cache_hits[role] += 1

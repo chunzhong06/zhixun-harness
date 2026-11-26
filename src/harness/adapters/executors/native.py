@@ -181,6 +181,7 @@ class NativeExecutor:
                 result = {'returncode': 1, 'stdout': '', 'stderr': '续训源码超过本次CPU时间上限'}
                 if budget:
                     budget.marker('worker_timeout')
+        result['timeout_seconds'] = cap
         result['execution_time'] = time.monotonic() - started
         candidates = []
         if result['returncode'] == 0:

@@ -76,6 +76,7 @@ class RoundBudget:
         self.defer_gas_reference = False
         self.times = {key:[] for key in ('model','submission','worker')}
         self.events = []
+        self.preparation = {}
 
     @contextmanager
     def activate(self):
@@ -171,7 +172,7 @@ class RoundBudget:
 
     def snapshot(self):
         return dict(source=self.source,wall_seconds=self.seconds,remaining_seconds=round(self.remaining,2),
-                    model_reserve=self.gateway,submission_reserve=self.publish,events=list(self.events))
+                    model_reserve=self.gateway,submission_reserve=self.publish,preparation=dict(self.preparation),events=list(self.events))
 
     def prepare(self, args, kwargs):
         """准备阶段只处理本地公开数据。隔离到可终止的进程，不向子进程传 SDK 通道。"""
@@ -185,6 +186,8 @@ class RoundBudget:
                 cap = min(cap, self.program_limit)
             if cap <= 0:
                 raise CloseResearch('父版准备前进入收尾窗口')
+            begin = self.clock()
+            self.preparation['start_s'] = round(begin-self.start, 3)
             try:
                 subprocess.run([sys.executable,'-B','-m',__name__,str(job)],timeout=cap,
                                stdin=subprocess.DEVNULL,stdout=sys.stderr,check=True)
@@ -195,6 +198,14 @@ class RoundBudget:
                 if exc.returncode in (-9, 137):
                     raise CloseResearch(f'本地父版准备被强制终止，退出码 {exc.returncode}') from exc
                 raise
+            finally:
+                self.preparation['wall_s'] = round(self.clock()-begin, 3)
+        startup = work/'training-cache-start.json'
+        if startup.is_file():
+            measured = json.loads(startup.read_bytes())
+            for field in ('training_hit', 'training_rows', 'teacher_wall_s', 'teacher_cpu_s'):
+                if field in measured:
+                    self.preparation[field] = measured[field]
         oracle = json.loads((work/'oracle.json').read_bytes())
         self.rows = len(oracle['explore']['ids'])
         return work/'task',oracle

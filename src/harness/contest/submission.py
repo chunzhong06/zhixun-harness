@@ -188,10 +188,8 @@ def _native_round(rnd, parent, output, state):
             epochs = min(epochs, 4)
             seconds = min(seconds, 60)
             budget.marker('gas_short_continuation')
-        else:
-            # 首轮或数据变化时保留完整模型及研究选案，限制单个本地候选占用的墙钟时间。
-            seconds = min(seconds, 180)
-    budget.program_limit = seconds
+    # 先让首个参考程序用完自己的预算；额外研究仍按短候选预算准入。
+    budget.program_limit = min(seconds, 180) if profile == 'A' else seconds
     if not budget.allowance(seconds):
         raise CloseResearch('当前时间不足以再开一次候选训练')
     if profile == 'C':
@@ -366,14 +364,15 @@ def _train_timed(rnd,budget):
         if repeated or bearing_search.finished_without_gain(report,selected,comparison):
             atomic_json(saved/'bearing-comparison.json',comparison)
         hint = native_state/'prior-training-hint' if repeated else recording/'.frozen-teacher'/parent_digest
-        if copy_training_hint(hint, saved/'training-hint'):
+        startup = recording/'training-cache-start.json'
+        prepared = json.loads(startup.read_bytes()) if startup.is_file() else {}
+        training_hint_used = prepared.get('training_hit')
+        active_name = None if repeated else prepared.get('training_hint_name')
+        if copy_training_hint(hint, saved/'training-hint', name=active_name):
             try:
                 check_files(saved)
             except ValueError:
                 shutil.rmtree(saved/'training-hint')
-        startup = recording/'training-cache-start.json'
-        if startup.is_file():
-            training_hint_used = json.loads(startup.read_bytes())['training_hit']
     if rnd.dataset_key == "C":
         budget.record_choice(report, selected)
     budget.save(saved)

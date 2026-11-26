@@ -187,7 +187,12 @@ class ContinuationSession:
                                               prepared.auxiliary_arrays['classifier_source_y'])
             else:
                 prepared.add_baseline_context(self._x,self._y)
-        prepared.prepare_training(self._x)
+        loaded = False
+        if baseline and backend == 'tabpfn':
+            from harness.learning.training.gas_training_asset import restore_training_targets
+            loaded = restore_training_targets(prepared, self._x)
+        if not loaded:
+            prepared.prepare_training(self._x)
         self._prepared_classifier=prepared
 
     def _prepare_tabm(self):

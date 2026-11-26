@@ -62,6 +62,8 @@ async def run_round(session, *, task, task_dir, specification, output, folder, p
     executor = session.make_executor(folder / 'executions', task_dir, parent, oracle, max_epochs=session.max_epochs, timeout=program_seconds, resume=resume,
                               cache_dir=output / 'candidate-cache' if candidate_cache else None,
                               cacheable_sources=references.values())
+    starting_seconds = program_seconds
+    program_seconds = min(program_seconds, specification.get('extra_program_seconds', program_seconds))
     executor.seed_parent(current['explore'])
     original_candidate = executor.records[0]['candidates'][0]
     reference_candidate = None
@@ -69,7 +71,7 @@ async def run_round(session, *, task, task_dir, specification, output, folder, p
     deferred = None
     try_research_first = task == 'gas' and public_selection and specification.get('defer_gas_reference') is True
     def execute_start(name):
-        executor.run_reference(references[name], folder, 'starting-reference.py', program_seconds)
+        executor.run_reference(references[name], folder, 'starting-reference.py', starting_seconds)
         record = executor.records[-1]
         candidate = None
         if record['returncode'] == 0 and record['candidates']:

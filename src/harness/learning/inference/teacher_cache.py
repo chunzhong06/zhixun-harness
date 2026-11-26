@@ -10,18 +10,26 @@ from zlib import error as ZlibError
 import numpy as np
 
 
-def copy_training_hint(source, destination):
+def copy_training_hint(source, destination, *, name=None):
     """接续单份有界训练预计算。命中仍须由本轮的教师、训练特征和内容摘要共同确认。"""
     if not source.is_dir() or source.is_symlink():
         return False
-    files = [p for p in source.glob('training-*.npz') if re.fullmatch(r'training-[a-f0-9]{64}\.npz', p.name)]
-    if len(files) != 1 or files[0].is_symlink() or not files[0].is_file():
+    pattern = r'training-[a-f0-9]{64}\.npz'
+    if name is None:
+        # 旧状态没有身份记录，只有单份合法文件时才可向后传递。
+        files = [p for p in source.glob('training-*.npz') if re.fullmatch(pattern, p.name)]
+        if len(files) != 1:
+            return False
+        selected = files[0]
+    elif isinstance(name, str) and re.fullmatch(pattern, name):
+        selected = source / name
+    else:
         return False
     try:
-        if files[0].stat().st_size > 1024 * 1024:
+        if selected.is_symlink() or not selected.is_file() or selected.stat().st_size > 1024 * 1024:
             return False
         destination.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(files[0], destination / files[0].name)
+        shutil.copyfile(selected, destination / selected.name)
         return True
     except OSError:
         return False
@@ -43,11 +51,16 @@ def frozen_teacher_values(folder, namespace, raw, memory, predict, *, training=F
     return hit
 
 
-def frozen_batch_values(folder, namespace, raw, compute, *, training=False, width=None):
-    """按有序输入整批复用；未命中时由调用方决定原有分组，不改变重复行或批边界。"""
+def batch_cache_key(namespace, raw):
     key = sha256(namespace.encode('utf-8'))
     key.update(np.asarray(raw.shape, dtype='<i8').tobytes())
     key.update(np.ascontiguousarray(raw, dtype='<f8').tobytes())
+    return key
+
+
+def frozen_batch_values(folder, namespace, raw, compute, *, training=False, width=None):
+    """按有序输入整批复用；未命中时由调用方决定原有分组，不改变重复行或批边界。"""
+    key = batch_cache_key(namespace, raw)
     target = folder / (('training-' if training else 'evaluation-') + key.hexdigest() + '.npz')
     shape = (len(raw),) if width is None else (len(raw), width)
     max_size = 1024 + 8 * len(raw) * (width or 1)

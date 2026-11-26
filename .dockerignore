@@ -5,6 +5,9 @@
 !baselines/**
 !assets/
 !assets/tabular-resources.json
+!assets/gas-training-v1/
+!assets/gas-training-v1/*.npy
+!assets/gas-training-v1/manifest.json
 !release/
 !release/training-sources.json
 !release/verify_training_runtime.py
