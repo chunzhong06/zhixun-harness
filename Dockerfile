@@ -4,6 +4,7 @@ FROM ${BASE}
 RUN --mount=type=bind,target=/input \
     mkdir -p /app/src \
     && cp -R /input/src/harness /app/src/harness \
+    && python3 -B /input/release/build_gas_fit.py /input/assets/gas-fit-source.npz /opt/zhixun/gas-fit-v1 \
     && cp -R /input/assets/gas-training-v1 /opt/zhixun/gas-training-v1 \
     && cp -R /input/baselines /app/baselines \
     && cp /input/harness.py /input/contest_submission.py /input/pyproject.toml /app/ \
@@ -13,6 +14,6 @@ RUN --mount=type=bind,target=/input \
     && ln -s /app/src/harness /usr/local/lib/python3.13/site-packages/harness \
     && ln -s /app/src/harness /app/harness \
     && python3 -B /opt/verify_training_runtime.py
-ARG VERSION=0.3.17
+ARG VERSION=0.3.18
 LABEL org.opencontainers.image.version=${VERSION}
 ENTRYPOINT ["python3","-B","/app/harness.py"]

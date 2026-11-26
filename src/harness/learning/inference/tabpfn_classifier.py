@@ -371,9 +371,15 @@ class TabPFNClassifierModel(TabICLClassifierModel):
             restore_teacher(self.auxiliary_arrays['teacher_asset'],path)
             def fitted(prefix,count,seed):
                 torch.manual_seed(seed)
-                predictor=package.TabPFNClassifier(model_path=path,n_estimators=count,device='cpu',random_state=seed,
-                    fit_mode='fit_with_cache',n_preprocessing_jobs=1,inference_precision=torch.float32)
-                predictor.fit(self.auxiliary_arrays[prefix+'_x'].astype(np.float32),self.auxiliary_arrays[prefix+'_y'])
+                if __package__:
+                    from .gas_fit_state import load_raw
+                else:
+                    from gas_fit_state import load_raw
+                predictor = load_raw(self, count, seed, package, path) if prefix == 'classifier_source' else None
+                if predictor is None:
+                    predictor=package.TabPFNClassifier(model_path=path,n_estimators=count,device='cpu',random_state=seed,
+                        fit_mode='fit_with_cache',n_preprocessing_jobs=1,inference_precision=torch.float32)
+                    predictor.fit(self.auxiliary_arrays[prefix+'_x'].astype(np.float32),self.auxiliary_arrays[prefix+'_y'])
                 if not np.array_equal(predictor.classes_,np.arange(len(self.meta['classes']))):
                     raise ValueError('教师类别顺序不匹配')
                 return _prediction_teacher(predictor)

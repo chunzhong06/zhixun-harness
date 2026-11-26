@@ -93,6 +93,7 @@ def prediction_sources(package, checkpoint):
                          'quantized_teacher.py','probability_mixture.py','teacher_cache.py','frozen_attention.py'):
                 files['baselines/'+name]=Path(__file__).with_name(name).read_bytes()
             if kind=='tabpfn-classification-parent':
+                files['baselines/gas_fit_state.py']=Path(__file__).with_name('gas_fit_state.py').read_bytes()
                 files['baselines/gas_drift_readout.py']=Path(__file__).with_name('gas_drift_readout.py').read_bytes()
                 if 'device_context' in state:
                     files['baselines/gas_device_context.py'] = Path(__file__).with_name('gas_device_context.py').read_bytes()
