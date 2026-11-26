@@ -1,17 +1,17 @@
-# 智训引擎 0.3.18
+# 智训引擎 0.3.19
 
 比赛宿主逐轮发放父模型和数据。Harness 维护气体分类、轴承与发动机寿命预测三项模型。当前检出的完整源码用于构建比赛镜像。源码清单位于 [release/training-sources.json](release/training-sources.json)，第三方资产见 [NOTICE](NOTICE.md)。
 
 ## 使用提交镜像
 
-0.3.18 由真实 Qwen3.8-27B 完成 A、B、C 各十轮，本地旧百分制总分 71.26228，与 0.3.17 持平。扣除主动暂停，启动至首次出分 42 分 09 秒，比上版增加 22.85 秒。 单线程压力测试中，1,244 条气体预测全部完成，首条 59.46 秒，Macro-F1 为 0.946416。
+0.3.19 在轴承验证输入追加时沿用冻结教师已完成的完整查询块，每轮用当前父模型重新生成预测。气体首轮以 0.20 核、4 GiB 和真实 Qwen 完成 1,244 条独立预测，Macro-F1 为 0.946416。逐项结果、计时范围和版本身份见[验收回执](release/verification.json)。
 
 ```sh
 docker load -i harness.tar
-docker run --rm --network none --read-only zhixun-harness:sdk-0.3.18-gzip describe
+docker run --rm --network none --read-only zhixun-harness:sdk-0.3.19-gzip describe
 ```
 
-提交物为一份可独立运行的 Docker-save 归档，459.79 MiB。正式训练由宿主发放 SDK 数据、父模型和模型网关。单线程气体预测可以从镜像中恢复已拟合的原始三成员教师。只有实际源特征、标签、权重和配置匹配时才启用。A 的首个强候选可使用本轮分给它的时间，额外研究程序保留原有上限。A 的训练教师在已核对的数据上复用一份 10,808 字节的概率矩阵。B 按本轮教师、线程及有序输入的摘要交接训练缓存。对照协议及本地验收见 [协议](release/protocol.json) 和 [回执](release/verification.json)。
+提交物为一份可独立运行的 Docker-save 归档，459.79 MiB。正式训练由宿主发放 SDK 数据、父模型和模型网关。单线程气体预测可以从镜像中恢复已拟合的原始三成员教师。只有实际源特征、标签、权重和配置匹配时才启用。A 的首个强候选可使用本轮分给它的时间，额外研究程序保留原有上限。A 的训练教师在已核对的数据上复用一份 10,808 字节的概率矩阵。B 训练缓存按教师、线程及有序输入绑定。验证阶段另交接完整查询块的教师数值及摘要。上一轮末尾不足 128 行的部分和新增行一起重算，教师配置、运行配置或已有输入不匹配时完整重算。对照协议及本地验收见 [协议](release/protocol.json) 和 [回执](release/verification.json)。
 
 ## 从源码构建
 
@@ -19,8 +19,8 @@ Dockerfile 的基础镜像是离线 CPU 运行时，提供固定 SDK、数值库
 
 ```sh
 python -B release/prepare_gas_source.py /path/to/cpu-a-guide-20261110-v1.zip
-docker buildx build --network=none --pull=false --platform linux/amd64 --provenance=false --output type=image,name=zhixun-harness:sdk-0.3.18-gzip,compression=gzip,compression-level=9 .
-docker save -o harness.tar zhixun-harness:sdk-0.3.18-gzip
+docker buildx build --network=none --pull=false --platform linux/amd64 --provenance=false --output type=image,name=zhixun-harness:sdk-0.3.19-gzip,compression=gzip,compression-level=9 .
+docker save -o harness.tar zhixun-harness:sdk-0.3.19-gzip
 ```
 
 从源码重建还需要官方 A 开发包和 Python 3.11+、NumPy。上述准备命令从固定摘要的开发包提取训练特征与标签，Docker 构建期间用作者接口拟合。仓库提供生成脚本。已导出的镜像在离线现场可以独立运行。

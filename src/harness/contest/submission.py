@@ -263,6 +263,8 @@ def _train_timed(rnd,budget):
             previous = None
         if isinstance(previous, dict) and previous.get('checkpoint_sha256') == sha256(parent.read_bytes()).hexdigest():
             copy_training_hint(restored/'training-hint', native_state/'prior-training-hint')
+            from harness.learning.inference.bearing_validation_prefix import copy_validation_prefix
+            copy_validation_prefix(restored/'training-hint', native_state/'prior-training-hint')
     started = budget.start
     release = work/'native-release'
     checkpoint = release/'checkpoint.npz'
@@ -357,8 +359,10 @@ def _train_timed(rnd,budget):
         'model_call_id': final_call_id, 'reason': decision['reason'], 'round_index': rnd.round_index})
     check_files(saved)
     training_hint_used = None
+    validation_reused_rows = 0
     if rnd.dataset_key == 'B':
         from harness.learning.inference.teacher_cache import copy_training_hint
+        from harness.learning.inference.bearing_validation_prefix import FILENAME, copy_validation_prefix
         recording = Path(publication['recording_directory'])
         repeated = report['status'] == 'unchanged_feedback_retained_parent' and selected_id == rnd.parent.artifact_id
         if repeated or bearing_search.finished_without_gain(report,selected,comparison):
@@ -373,6 +377,15 @@ def _train_timed(rnd,budget):
                 check_files(saved)
             except ValueError:
                 shutil.rmtree(saved/'training-hint')
+        validation = recording/'validation-cache-start.json'
+        if validation.is_file():
+            validation_reused_rows = json.loads(validation.read_bytes())['reused_teacher_rows']
+        validation_source = native_state/'prior-training-hint' if repeated else recording
+        if copy_validation_prefix(validation_source, saved/'training-hint'):
+            try:
+                check_files(saved)
+            except ValueError:
+                (saved/'training-hint'/FILENAME).unlink()
     if rnd.dataset_key == "C":
         budget.record_choice(report, selected)
     budget.save(saved)
@@ -384,6 +397,7 @@ def _train_timed(rnd,budget):
         reason=decision['reason'], configuration=configuration, seed=int(report['seed']),
         history_ids=[item['id'] for item in history], model_call_ids=list(rnd.call_ids))
     atomic_json(work/'sdk-result.json', {'ack': receipt, 'training_hint_used': training_hint_used,
+        'validation_reused_rows': validation_reused_rows,
         'selected_artifact_id': selected_id,
         'checkpoint_sha256': selected['checkpoint_sha256'], 'model_call_ids': list(rnd.call_ids),
         'seconds': time.monotonic()-started, 'local_nomination_sha256': publication['published_sha256']})

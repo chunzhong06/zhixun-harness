@@ -126,7 +126,11 @@ def prepare_round(profile, train_path, validation_path, parent, work, *, baselin
                                                           'training_rows': len(train['x']),
                                                           'teacher_wall_s': round(monotonic()-start_wall, 3),
                                                           'teacher_cpu_s': round(process_time()-start_cpu, 3)})
-    pred=getattr(model,'predict_batch',model.predict)(valid['x'])
+    if profile == 'B' and hasattr(model, 'prepare_validation'):
+        pred, reused = model.prepare_validation(valid['x'], training_hint, work)
+        atomic_json(work/'validation-cache-start.json', {'reused_teacher_rows':reused, 'rows':len(valid['x'])})
+    else:
+        pred=getattr(model,'predict_batch',model.predict)(valid['x'])
     if profile == 'A' and selection_policy == 'public-validation':
         # 完整服务数组复用批量结果，只做有限单行调用确认接口一致性。
         probe_indices = _probe_indices(len(valid['x']), _probe_limit())

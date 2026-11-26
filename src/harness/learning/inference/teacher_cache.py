@@ -9,6 +9,8 @@ from zlib import error as ZlibError
 
 import numpy as np
 
+REGRESSION_QUERY_ROWS = 128
+
 
 def copy_training_hint(source, destination, *, name=None):
     """接续单份有界训练预计算。命中仍须由本轮的教师、训练特征和内容摘要共同确认。"""
@@ -42,7 +44,8 @@ def frozen_regression_values(folder, namespace, raw, memory, predict, *, trainin
 def frozen_teacher_values(folder, namespace, raw, memory, predict, *, training=False, width=None):
     """复用整个输入批次的冻结教师输出，保留分类概率原有精度及回归文件格式。"""
     def compute(batch):
-        prefetch_teacher(memory, batch, predict, width=width, nonnegative=width is None, batch_size=128 if width is None else 32)
+        prefetch_teacher(memory, batch, predict, width=width, nonnegative=width is None,
+                         batch_size=REGRESSION_QUERY_ROWS if width is None else 32)
         return np.asarray([memory[row.tobytes()] for row in batch], dtype=np.float64 if width is None else None)
 
     values, hit = frozen_batch_values(folder, namespace, raw, compute, training=training, width=width)

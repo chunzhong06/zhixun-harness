@@ -414,6 +414,13 @@ class TabPFNRegressorModel(TabICLReadoutModel):
         self._prefetch_batch(raw, self._prediction_cache, 'evaluation')
         return self.predict(raw)
 
+    def prepare_validation(self, raw, prior, work):
+        if self._cpu_readout is not None or self._round_cache is None:
+            return self.predict_batch(raw), 0
+        from .bearing_validation_prefix import predict_with_prefix
+        return predict_with_prefix(self._raw(raw), self._cache_namespace("evaluation"), self._prediction_cache,
+                                   self.predict_batch, prior, work)
+
     def _predict_before_grid(self, raw):
         raw = self._raw(raw)
         prefetch_teacher(self._prediction_cache, raw, self._teacher_predict, nonnegative=True, batch_size=1)
